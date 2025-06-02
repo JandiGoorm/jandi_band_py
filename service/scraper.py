@@ -1,33 +1,39 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 import re
 import math
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
-from collections import defaultdict, OrderedDict
+from collections import defaultdict
 from threading import Lock
 import logging
 import os
 
-# 설정 상수들
 @dataclass
-class TimetableConfig:
-    """시간표 파싱 관련 설정"""
-    WAIT_TIMEOUT: int = 10
-    BASE_TOP_OFFSET: int = 450  # 9시 시작점 픽셀
-    PIXEL_PER_30MIN: int = 25   # 30분당 픽셀
+class ScraperConfig:
+    # 시간표 파싱 관련
+    WAIT_TIMEOUT: int = 10000  # Playwright는 밀리초 단위
     TIME_UNIT_MINUTES: int = 30  # 시간 단위 (분)
-    START_HOUR: int = 9         # 시작 시간
+    START_HOUR: int = 9         # 시작 시각
+    BASE_TOP_OFFSET: int = 540  # 9시 시작점 픽셀
+    PIXEL_PER_30MIN: int = 30   # 30분당 픽셀
+    HEIGHT_ADJUSTMENT: int = 1  # 높이 계산시 보정값
+    SUBJECT_CENTER_RATIO: float = 0.5  # subject 중앙점 계산 비율
 
     # CSS 선택자
-    TABLE_HEAD_CLASS: str = "tablehead"
-    TABLE_BODY_CLASS: str = "tablebody"
-    SUBJECT_CLASS: str = "subject"
+    TABLE_HEAD_CLASS: str = ".tablehead"
+    TABLE_BODY_CLASS: str = ".tablebody"
+    SUBJECT_CLASS: str = ".subject"
+
+    # Playwright 설정
+    headless: bool = True
+    viewport_width: int = 1920
+    viewport_height: int = 1080
+    user_agent: str = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+    timeout: int = 30000  # 30초
 
     # 요일 매핑 (한국어 → 영어)
     WEEKDAY_MAPPING: Dict[str, str] = None
@@ -35,86 +41,179 @@ class TimetableConfig:
     def __post_init__(self):
         if self.WEEKDAY_MAPPING is None:
             self.WEEKDAY_MAPPING = {
-                "월": "Mon",
-                "화": "Tue",
-                "수": "Wed",
-                "목": "Thu",
-                "금": "Fri",
-                "토": "Sat",
-                "일": "Sun"
+                "월": "Mon", "화": "Tue", "수": "Wed", "목": "Thu",
+                "금": "Fri", "토": "Sat", "일": "Sun"
             }
 
-@dataclass
-class WebDriverConfig:
-    """WebDriver 설정"""
-    headless: bool = True
-    window_size: str = "1920x1080"
-    user_agent: str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-
-    def get_chromedriver_path(self) -> str:
-        """크롬드라이버 경로를 찾아서 반환"""
-        paths = ["/usr/bin/chromedriver", "/usr/local/bin/chromedriver"]
-        for path in paths:
-            if os.path.exists(path):
-                return path
-        # 둘 다 없으면 기본값 반환 (Docker 환경 우선)
-        return "/usr/bin/chromedriver"
 
 class TimetableLoader:
-    """시간표 데이터 불러오기 클래스"""
+    """ 1. 초기화 및 Public 인터페이스 """
 
-    def __init__(self, config: TimetableConfig = None, driver_config: WebDriverConfig = None):
-        self.config = config or TimetableConfig()
-        self.driver_config = driver_config or WebDriverConfig()
-        self._driver: Optional[webdriver.Chrome] = None
-        self._driver_lock = Lock()
+    def __init__(self, config: ScraperConfig = None):
+        self.config = config or ScraperConfig()
+        self._browser: Optional[Browser] = None
+        self._context: Optional[BrowserContext] = None
+        self._page: Optional[Page] = None
+        self._playwright = None
+        self._browser_lock = Lock()
         self.logger = logging.getLogger(__name__)
 
-    def _setup_chrome_options(self) -> Options:
-        """Chrome 옵션 설정"""
-        options = Options()
-        options.add_argument("--disable-gpu")
-        options.add_argument(f"--window-size={self.driver_config.window_size}")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-
-        if self.driver_config.headless:
-            options.add_argument("--headless")
-
-        options.add_argument(f"user-agent={self.driver_config.user_agent}")
-        return options
-
-    def _get_driver(self) -> webdriver.Chrome:
-        """WebDriver 인스턴스 획득 (싱글톤)"""
-        with self._driver_lock:
-            if self._driver is None:
-                try:
-                    service = Service(self.driver_config.get_chromedriver_path())
-                    options = self._setup_chrome_options()
-                    self._driver = webdriver.Chrome(service=service, options=options)
-                    self.logger.info("WebDriver 인스턴스가 생성되었습니다.")
-                except Exception as e:
-                    self.logger.error(f"WebDriver 생성 실패: {e}")
-                    raise
-            return self._driver
-
-    def _load_weekdays(self, driver: webdriver.Chrome) -> List[str]:
-        """요일 정보 불러오기"""
+    def load_timetable(self, url: str) -> Dict[str, Any]:
         try:
-            tablehead = WebDriverWait(driver, self.config.WAIT_TIMEOUT).until(
-                EC.presence_of_element_located((By.CLASS_NAME, self.config.TABLE_HEAD_CLASS))
+            page = self._get_page()
+            page.goto(url)
+            weekdays = self._load_weekdays(page)
+            daily_schedules = self._load_subject_data(page, weekdays)
+
+            if not daily_schedules:
+                return self._build_response(
+                    False, "공개되지 않은 시간표입니다."
+                )
+
+            # 최종 스케줄 구성
+            timetable_data = {}
+            for day, time_ranges in daily_schedules.items():
+                merged_times = self._merge_time_slots(time_ranges)
+                english_day = self.config.WEEKDAY_MAPPING.get(day, day)
+                timetable_data[english_day] = merged_times
+
+            return self._build_response(
+                True,
+                "유저 시간표 불러오기 성공",
+                {"timetableData": timetable_data}
             )
-            days = [td.text.strip() for td in tablehead.find_elements(By.TAG_NAME, "td") if td.text.strip()]
+
+        except TimeoutError:
+            self.logger.error(f"페이지 로딩 타임아웃: {url}")
+            return self._build_response(False, "페이지 로딩 시간이 초과되었습니다.")
+
+        except ValueError as e:
+            self.logger.error(f"데이터 파싱 오류: {e}")
+            return self._build_response(False, str(e))
+
+        except Exception as e:
+            self.logger.error(f"예상치 못한 오류: {e}")
+            return self._build_response(False, f"서버 오류: {str(e)}")
+
+    """ 2. 브라우저 관리 (생명주기) """
+
+    def _get_page(self) -> Page:
+        with self._browser_lock:
+            if self._page is None:
+                try:
+                    self._playwright = sync_playwright().start()
+                    self._browser = self._playwright.chromium.launch(
+                        headless=self.config.headless
+                    )
+                    self._context = self._browser.new_context(
+                        viewport={
+                            'width': self.config.viewport_width,
+                            'height': self.config.viewport_height
+                        },
+                        user_agent=self.config.user_agent
+                    )
+
+                    # 이미지와 폰트 차단 (CSS는 레이아웃 계산에 필요)
+                    blocked_patterns = "**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}"
+                    self._context.route(blocked_patterns, lambda route: route.abort())
+
+                    self._page = self._context.new_page()
+                    self._page.set_default_timeout(self.config.timeout)
+
+                    self.logger.info("Playwright 인스턴스가 생성되었습니다.")
+
+                except Exception as e:
+                    self.logger.error(f"Playwright 생성 실패: {e}")
+                    raise
+
+            return self._page
+
+    def close_browser(self):
+        with self._browser_lock:
+            if self._page:
+                self._page.close()
+                self._page = None
+            if self._context:
+                self._context.close()
+                self._context = None
+            if self._browser:
+                self._browser.close()
+                self._browser = None
+            if self._playwright:
+                self._playwright.stop()
+                self._playwright = None
+            self.logger.info("Playwright 브라우저가 종료되었습니다.")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close_browser()
+
+    """ 3. 데이터 추출 (상위 레벨) """
+
+    def _load_weekdays(self, page: Page) -> List[str]:
+        try:
+            page.wait_for_selector(
+                self.config.TABLE_HEAD_CLASS,
+                timeout=self.config.WAIT_TIMEOUT
+            )
+            td_elements = page.locator(f"{self.config.TABLE_HEAD_CLASS} td")
+            days = []
+
+            for i in range(td_elements.count()):
+                text = td_elements.nth(i).text_content().strip()
+                if text:
+                    days.append(text)
 
             if not days:
                 raise ValueError("요일 정보를 찾을 수 없습니다")
 
             return days
-        except TimeoutException:
-            raise TimeoutException("시간표 헤더를 찾을 수 없습니다")
 
+        except Exception as e:
+            if "Timeout" in str(e):
+                raise TimeoutError("시간표 헤더를 찾을 수 없습니다")
+            raise
+
+    def _load_subject_data(
+        self, page: Page, weekdays: List[str]
+    ) -> Dict[str, List[Tuple[str, str]]]:
+        try:
+            page.wait_for_selector(
+                self.config.TABLE_BODY_CLASS,
+                timeout=self.config.WAIT_TIMEOUT
+            )
+            subjects = page.locator(
+                f"{self.config.TABLE_BODY_CLASS} {self.config.SUBJECT_CLASS}"
+            )
+
+            if subjects.count() == 0:
+                raise ValueError("과목 요소를 찾을 수 없습니다")
+
+        except Exception:
+            raise ValueError("시간표 본문을 찾을 수 없습니다")
+
+        daily_schedules = defaultdict(list)
+
+        for i in range(subjects.count()):
+            subject = subjects.nth(i)
+            style = subject.get_attribute("style")
+            time_data = self._parse_time_from_style(style)
+
+            if not time_data:
+                continue
+
+            height, top = time_data
+            start_time, end_time = self._calculate_time_range(height, top)
+            day = self._find_subject_day(subject, weekdays, page)
+
+            daily_schedules[day].append((start_time, end_time))
+
+        return daily_schedules
+
+    """ 4. 파싱 및 계산 (하위 레벨 헬퍼) """
     def _parse_time_from_style(self, style_str: str) -> Optional[Tuple[int, int]]:
-        """스타일 속성에서 시간 정보 파싱"""
         height_match = re.search(r'height:\s*(\d+)px', style_str)
         top_match = re.search(r'top:\s*(\d+)px', style_str)
 
@@ -126,63 +225,63 @@ class TimetableLoader:
 
         return height, top
 
-    def _calculate_time_range(self, height: int, top: int) -> Tuple[str, str]:
-        """픽셀 정보를 시간 범위로 변환"""
-        # 시작 시간 계산
-        start_minutes = ((top - self.config.BASE_TOP_OFFSET) // self.config.PIXEL_PER_30MIN) * self.config.TIME_UNIT_MINUTES
-        start_hour = self.config.START_HOUR + (start_minutes // 60)
-        start_minute = start_minutes % 60
+    def _pixels_to_time(self, pixels: int) -> str:
+        offset_pixels = pixels - self.config.BASE_TOP_OFFSET
+        time_slots = offset_pixels // self.config.PIXEL_PER_30MIN
+        minutes = time_slots * self.config.TIME_UNIT_MINUTES
 
-        # 종료 시간 계산
-        duration_minutes = math.ceil((height - 1) / self.config.PIXEL_PER_30MIN) * self.config.TIME_UNIT_MINUTES
+        hour = self.config.START_HOUR + (minutes // 60)
+        minute = minutes % 60
+        return f"{hour:02d}:{minute:02d}"
+
+    def _calculate_duration_minutes(self, height: int) -> int:
+        adjusted_height = height - self.config.HEIGHT_ADJUSTMENT
+        time_slots = math.ceil(adjusted_height / self.config.PIXEL_PER_30MIN)
+        return time_slots * self.config.TIME_UNIT_MINUTES
+
+    def _calculate_time_range(self, height: int, top: int) -> Tuple[str, str]:
+        start_time = self._pixels_to_time(top)
+        duration_minutes = self._calculate_duration_minutes(height)
+
+        offset_pixels = top - self.config.BASE_TOP_OFFSET
+        time_slots = offset_pixels // self.config.PIXEL_PER_30MIN
+        start_minutes = time_slots * self.config.TIME_UNIT_MINUTES
+
         end_total_minutes = start_minutes + duration_minutes
         end_hour = self.config.START_HOUR + (end_total_minutes // 60)
         end_minute = end_total_minutes % 60
 
-        start_time = f"{int(start_hour):02}:{int(start_minute):02}"
-        end_time = f"{int(end_hour):02}:{int(end_minute):02}"
-
+        end_time = f"{end_hour:02d}:{end_minute:02d}"
         return start_time, end_time
 
-    def _find_subject_day(self, subject_element, weekdays: List[str]) -> str:
-        """과목이 속한 요일 찾기"""
+    def _find_subject_day(self, subject_element, weekdays: List[str], page: Page) -> str:
         try:
-            parent_td = subject_element.find_element(By.XPATH, "./ancestor::td")
-            parent_row = parent_td.find_element(By.XPATH, "./ancestor::tr")
-            all_tds = parent_row.find_elements(By.TAG_NAME, "td")
-            td_index = list(all_tds).index(parent_td)
+            subject_rect = subject_element.bounding_box()
+            if not subject_rect:
+                return "알 수 없음"
 
-            return weekdays[td_index] if td_index < len(weekdays) else "알 수 없음"
-        except (NoSuchElementException, IndexError):
+            tablehead = page.locator(self.config.TABLE_HEAD_CLASS).first
+            td_elements = tablehead.locator('td')
+
+            subject_x = (
+                subject_rect['x'] +
+                subject_rect['width'] * self.config.SUBJECT_CENTER_RATIO
+            )
+
+            for i in range(td_elements.count()):
+                td_rect = td_elements.nth(i).bounding_box()
+                if (td_rect and
+                    td_rect['x'] <= subject_x <= td_rect['x'] + td_rect['width']):
+                    return weekdays[i] if i < len(weekdays) else "알 수 없음"
+
             return "알 수 없음"
 
-    def _load_subject_data(self, driver: webdriver.Chrome, weekdays: List[str]) -> Dict[str, List[Tuple[str, str]]]:
-        """과목 데이터 불러오기"""
-        try:
-            tablebody = driver.find_element(By.CLASS_NAME, self.config.TABLE_BODY_CLASS)
-            subjects = tablebody.find_elements(By.CLASS_NAME, self.config.SUBJECT_CLASS)
-        except NoSuchElementException:
-            raise ValueError("시간표 본문을 찾을 수 없습니다")
+        except Exception as e:
+            self.logger.debug(f"요일 찾기 실패: {e}")
+            return "알 수 없음"
 
-        daily_schedules = defaultdict(list)
-
-        for subject in subjects:
-            style = subject.get_attribute("style")
-            time_data = self._parse_time_from_style(style)
-
-            if not time_data:
-                continue
-
-            height, top = time_data
-            start_time, end_time = self._calculate_time_range(height, top)
-            day = self._find_subject_day(subject, weekdays)
-
-            daily_schedules[day].append((start_time, end_time))
-
-        return daily_schedules
-
+    """ 5. 데이터 처리 (유틸리티) """
     def _merge_time_slots(self, time_ranges: List[Tuple[str, str]]) -> List[str]:
-        """연속된 시간 슬롯 병합"""
         if not time_ranges:
             return []
 
@@ -204,72 +303,7 @@ class TimetableLoader:
         return sorted(merged_slots)
 
     def _build_response(self, success: bool, message: str, data: Dict = None) -> Dict[str, Any]:
-        """응답 데이터 구성"""
+        response = {"success": success, "message": message}
         if data:
-            response = OrderedDict([
-                ("success", success),
-                ("message", message),
-                ("data", data)
-            ])
-        else:
-            response = OrderedDict([
-                ("success", success),
-                ("message", message)
-            ])
+            response["data"] = data
         return response
-
-    def load_timetable(self, url: str) -> Dict[str, Any]:
-        """메인 시간표 불러오기 메서드"""
-        try:
-            driver = self._get_driver()
-            driver.get(url)
-
-            # 요일 정보 불러오기
-            weekdays = self._load_weekdays(driver)
-
-            # 과목 데이터 불러오기
-            daily_schedules = self._load_subject_data(driver, weekdays)
-
-            if not daily_schedules:
-                return self._build_response(
-                    False, "공개되지 않은 시간표입니다."
-                )
-
-            # 최종 스케줄 구성
-            timetable_data = {}
-            for day, time_ranges in daily_schedules.items():
-                merged_times = self._merge_time_slots(time_ranges)
-                english_day = self.config.WEEKDAY_MAPPING.get(day, day)
-                timetable_data[english_day] = merged_times
-
-            return self._build_response(
-                True,
-                "유저 시간표 불러오기 성공",
-                {"timetableData": timetable_data}
-            )
-
-        except TimeoutException:
-            self.logger.error(f"페이지 로딩 타임아웃: {url}")
-            return self._build_response(False, "페이지 로딩 시간이 초과되었습니다.")
-
-        except ValueError as e:
-            self.logger.error(f"데이터 파싱 오류: {e}")
-            return self._build_response(False, str(e))
-
-        except Exception as e:
-            self.logger.error(f"예상치 못한 오류: {e}")
-            return self._build_response(False, f"서버 오류: {str(e)}")
-
-    def close_driver(self):
-        """WebDriver 종료"""
-        with self._driver_lock:
-            if self._driver:
-                self._driver.quit()
-                self._driver = None
-                self.logger.info("WebDriver가 종료되었습니다.")
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close_driver()
