@@ -50,8 +50,16 @@ pipeline {
                         echo "Waiting for service to start..."
                         sleep 30
                         
-                        echo "Health check..."
-                        curl -f http://localhost:${HOST_PORT}/timetable?url=test || exit 1
+                        echo "Health check - Testing if service is responding..."
+                        response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${HOST_PORT}/health || echo "000")
+                        echo "HTTP Response Code: $response"
+                        
+                        if [ "$response" = "200" ]; then
+                            echo "✅ Service is responding correctly (HTTP $response)"
+                        else
+                            echo "❌ Service health check failed (HTTP $response)"
+                            exit 1
+                        fi
                         
                         echo "Container status:"
                         docker ps | grep ${CONTAINER_NAME}

@@ -21,6 +21,13 @@ CORS(app, resources={
     }
 })
 
+@app.route("/health", methods=["GET"])
+def health_check():
+    """헬스체크 엔드포인트"""
+    response_data = {"status": "healthy", "service": "flask-scraper"}
+    return Response(json.dumps(response_data, ensure_ascii=False),
+                   status=200, mimetype='application/json')
+
 @app.route("/timetable", methods=["GET"])
 def get_timetable():
     url = request.args.get("url")

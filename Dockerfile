@@ -45,7 +45,7 @@ EXPOSE 5001
 
 # 헬스체크 추가 (호스트에서 접근 가능하도록)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:5001/timetable?url=test || exit 1
+    CMD curl -f http://localhost:5001/health || exit 1
 
 # 시작 스크립트 생성 (로깅 개선)
 RUN echo '#!/bin/bash\necho "Starting Flask Scraper..."\necho "Environment: $FLASK_ENV"\necho "Port: 5001"\npython app.py' > start.sh && \
