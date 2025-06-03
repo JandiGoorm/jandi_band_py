@@ -51,17 +51,16 @@ pipeline {
                         sleep 30
                         
                         echo "Health check - Testing if service is responding..."
-                        response=$(curl -s -w "%{http_code}" -o /dev/null http://localhost:${HOST_PORT}/health)
-                        echo "HTTP Response Code: $response"
                         
-                        if [ "$response" = "200" ]; then
-                            echo "✅ Service is responding correctly (HTTP $response)"
+                        # 컨테이너 내부에서 직접 헬스체크 수행
+                        if docker exec ${CONTAINER_NAME} curl -f http://localhost:5001/health > /dev/null 2>&1; then
+                            echo "✅ Service is responding correctly"
                         else
-                            echo "❌ Service health check failed (HTTP $response)"
+                            echo "❌ Service health check failed"
                             echo "Checking if container is running..."
                             docker ps | grep ${CONTAINER_NAME} || true
                             echo "Container logs:"
-                            docker logs ${CONTAINER_NAME} --tail 10 || true
+                            docker logs ${CONTAINER_NAME} --tail 20 || true
                             exit 1
                         fi
                         
