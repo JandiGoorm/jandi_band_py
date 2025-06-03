@@ -5,23 +5,22 @@ Playwright를 사용하여 동적 웹페이지를 안정적으로 스크래핑�
 
 ## 주요 기능
 
-- ✅ 에브리타임 시간표 URL 스크래핑
-- ✅ CORS 지원으로 웹 애플리케이션에서 직접 호출 가능
-- ✅ Docker 컨테이너 기반 배포
-- ✅ Jenkins CI/CD 자동 배포
-- ✅ Nginx 리버스 프록시 지원
-- ✅ Playwright 헤드리스 브라우저 사용
-- ✅ 에러 처리 및 상태 코드 관리
+- 에브리타임 시간표 URL 스크래핑
+- CORS 지원으로 웹 애플리케이션에서 직접 호출 가능
+- Docker 컨테이너 기반 배포
+- Jenkins CI/CD 자동 배포
+- Playwright 헤드리스 브라우저 사용
+- 에러 처리 및 상태 코드 관리
 
 ## API 명세서
 
 ### Base URL
 ```
-Production: https://your-domain.com/scraper
+Production: https://rhythmeet-be.yeonjae.kr/scraper
 Development: http://localhost:5001
 ```
 
-### 🔍 GET /timetable
+### GET /timetable
 에브리타임 시간표 데이터를 스크래핑합니다.
 
 #### Request
@@ -32,7 +31,7 @@ Development: http://localhost:5001
 
 **Example Request:**
 ```bash
-curl "http://localhost:5001/timetable?url=https://everytime.kr/timetable/12345"
+curl "https://rhythmeet-be.yeonjae.kr/scraper/timetable?url=https://everytime.kr/timetable/12345"
 ```
 
 #### Response
@@ -41,20 +40,18 @@ curl "http://localhost:5001/timetable?url=https://everytime.kr/timetable/12345"
 ```json
 {
   "success": true,
+  "message": "유저 시간표 불러오기 성공",
   "data": {
-    "timetable": [
-      {
-        "subject": "컴퓨터프로그래밍",
-        "professor": "김교수",
-        "time": "월 09:00-10:30",
-        "location": "공학관 101호",
-        "credit": 3
-      }
-    ],
-    "semester": "2024-1학기",
-    "totalCredits": 18
-  },
-  "message": "시간표를 성공적으로 불러왔습니다."
+    "timetableData": {
+      "Mon": ["09:00", "09:30", "10:00", "10:30"],
+      "Tue": ["10:00", "10:30", "11:00"],
+      "Wed": ["14:00", "14:30", "15:00"],
+      "Thu": [],
+      "Fri": ["13:00", "13:30", "14:00"],
+      "Sat": [],
+      "Sun": []
+    }
+  }
 }
 ```
 
@@ -88,7 +85,7 @@ curl "http://localhost:5001/timetable?url=https://everytime.kr/timetable/12345"
 ```json
 {
   "success": false,
-  "message": "서버 오류가 발생했습니다."
+  "message": "서버 오류: {오류내용}"
 }
 ```
 
@@ -98,7 +95,7 @@ curl "http://localhost:5001/timetable?url=https://everytime.kr/timetable/12345"
 - `https://rhythmeet-be.yeonjae.kr`
 - `https://*.yeonjae.kr`
 
-## 🛠️ 기술 스택
+## 기술 스택
 
 - **Backend**: Python 3.12, Flask, Flask-CORS
 - **Scraping**: Playwright (Chromium)
@@ -107,7 +104,22 @@ curl "http://localhost:5001/timetable?url=https://everytime.kr/timetable/12345"
 - **Reverse Proxy**: Nginx
 - **Process Management**: Docker Container Restart Policies
 
-## 🏗️ 아키텍처 구조
+## 프로젝트 구조
+
+```
+jandi_band_py/
+├── app.py                      # Flask 애플리케이션 메인 파일
+├── requirements.txt            # Python 의존성
+├── Dockerfile                  # Docker 이미지 빌드 설정
+├── Jenkinsfile                 # CI/CD 파이프라인 설정
+├── service/                    # 비즈니스 로직
+│   ├── __init__.py
+│   └── scraper.py              # 시간표 스크래핑 로직
+├── DEPLOYMENT.md               # 배포 가이드
+└── README.md                   # 프로젝트 문서
+```
+
+## 아키텍처 구조
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -122,7 +134,7 @@ curl "http://localhost:5001/timetable?url=https://everytime.kr/timetable/12345"
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-## 🐳 Docker 설정
+## Docker 설정
 
 ### Dockerfile 구조 및 이유
 
@@ -165,7 +177,7 @@ docker run -d \
   flask-scraper:latest
 ```
 
-## 🔄 Jenkins CI/CD 설정
+## Jenkins CI/CD 설정
 
 ### Pipeline 구조 및 이유
 
@@ -255,23 +267,12 @@ docker restart jenkins
    - Branch: ***/master**
    - Script Path: **Jenkinsfile**
 
-## 🌐 Nginx 리버스 프록시 설정
-
-### 설정 목적 및 이유
-
-1. **포트 통합**: 모든 서비스를 80/443 포트로 통합
-2. **SSL 종료**: HTTPS 인증서 중앙 관리
-3. **로드 밸런싱**: 필요시 여러 인스턴스로 확장 가능
-4. **보안**: 내부 서비스 포트 숨김
-5. **정적 파일 서빙**: Nginx의 고성능 정적 파일 처리
+## Nginx 리버스 프록시 설정
 
 ### nginx.conf 설정
 
 ```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    
+
     # Flask 스크래핑 API
     location /scraper/ {
         proxy_pass http://localhost:5001/;
@@ -285,23 +286,6 @@ server {
         add_header Access-Control-Allow-Methods "GET, POST, OPTIONS";
         add_header Access-Control-Allow-Headers "Content-Type, Authorization";
     }
-    
-    # Jenkins CI/CD
-    location /jenkins/ {
-        proxy_pass http://localhost:8080/jenkins/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-    
-    # 헬스체크
-    location /health {
-        access_log off;
-        return 200 "healthy\n";
-        add_header Content-Type text/plain;
-    }
-}
 ```
 
 ### SSL 설정 (Let's Encrypt)
@@ -317,7 +301,7 @@ sudo crontab -e
 # 추가: 0 12 * * * /usr/bin/certbot renew --quiet
 ```
 
-## 🚀 배포 가이드
+## 배포 가이드
 
 ### 1. 서버 초기 설정
 
@@ -404,7 +388,7 @@ docker run -d \
   flask-scraper:latest
 ```
 
-## 🔍 모니터링 및 관리
+## 모니터링 및 관리
 
 ### 로그 확인
 ```bash
@@ -426,10 +410,10 @@ htop
 ### 헬스체크
 ```bash
 # 애플리케이션 상태 확인
-curl http://localhost:5001/timetable?url=test
+curl https://rhythmeet-be.yeonjae.kr/scraper/health
 
-# Nginx 프록시를 통한 확인
-curl http://your-domain.com/scraper/timetable?url=test
+# 시간표 API 테스트 (400 응답이 정상)
+curl "https://rhythmeet-be.yeonjae.kr/scraper/timetable?url=test"
 
 # 컨테이너 상태 확인
 docker ps -a
@@ -463,77 +447,3 @@ docker logs --tail 100 flask-scraper-app
 # 실시간 로그 모니터링
 docker logs -f flask-scraper-app
 ```
-
-## 🔒 보안 고려사항
-
-### 1. 컨테이너 보안
-- ✅ 비특권 사용자로 애플리케이션 실행
-- ✅ 최소한의 시스템 패키지만 설치
-- ✅ 정기적인 베이스 이미지 업데이트
-
-### 2. 네트워크 보안
-- ✅ 방화벽으로 필요한 포트만 개방
-- ✅ Nginx 리버스 프록시로 내부 포트 숨김
-- ✅ SSL/TLS 암호화 적용
-
-### 3. 접근 제어
-- ✅ Jenkins 관리자 계정 보안
-- ✅ GitHub 토큰 기반 인증
-- ✅ 환경 변수로 민감 정보 관리
-
-### 4. 모니터링
-- ✅ 접근 로그 모니터링
-- ✅ 실패한 요청 추적
-- ✅ 리소스 사용량 모니터링
-
-## 📊 성능 최적화
-
-### 1. Docker 최적화
-```dockerfile
-# 멀티스테이지 빌드 (필요시)
-# 이미지 레이어 캐싱 최적화
-# 불필요한 파일 제거
-```
-
-### 2. 애플리케이션 최적화
-- Playwright 브라우저 인스턴스 재사용
-- 적절한 타임아웃 설정
-- 에러 처리 및 재시도 로직
-
-### 3. 인프라 최적화
-- Nginx 캐싱 설정
-- 적절한 리소스 제한 설정
-- 로그 로테이션 설정
-
-## 📋 체크리스트
-
-### 배포 전 확인사항
-- [ ] GitHub 저장소 접근 권한 확인
-- [ ] Jenkins Credentials 설정 완료
-- [ ] Docker 및 Nginx 설치 완료
-- [ ] 방화벽 설정 확인
-- [ ] 도메인 및 DNS 설정 (필요시)
-
-### 배포 후 확인사항
-- [ ] 애플리케이션 정상 실행 확인
-- [ ] API 엔드포인트 응답 확인
-- [ ] Jenkins Pipeline 정상 동작 확인
-- [ ] Nginx 프록시 정상 동작 확인
-- [ ] SSL 인증서 적용 확인 (필요시)
-
-## 🤝 기여하기
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📝 라이센스
-
-MIT License - 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요.
-
-## 📞 문의
-
-- 개발자: [JandiGoorm](https://github.com/JandiGoorm)
-- 이슈 리포트: [GitHub Issues](https://github.com/JandiGoorm/jandi_band_py/issues)
