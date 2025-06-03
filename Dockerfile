@@ -5,17 +5,22 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV FLASK_ENV=production
 
+# 레이블 추가 (컨테이너 관리용)
+LABEL maintainer="jandi-band"
+LABEL service="flask-scraper"
+
 # 시스템 패키지 설치 (Playwright 의존성)
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 사용자 생성
 RUN useradd -m -u 1000 scraper && \
-    mkdir -p /app && \
-    chown scraper:scraper /app
+    mkdir -p /app /app/logs && \
+    chown -R scraper:scraper /app
 
 # 작업 디렉토리 설정
 WORKDIR /app
@@ -25,10 +30,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Playwright 브라우저 설치 (사용자로 실행)
+# Playwright 시스템 의존성을 root로 설치
+RUN playwright install-deps chromium
+
+# 사용자로 전환 후 Playwright 브라우저만 설치
 USER scraper
-RUN playwright install chromium && \
-    playwright install-deps chromium
+RUN playwright install chromium
 
 # 소스 코드 복사
 COPY --chown=scraper:scraper . .
@@ -36,9 +43,13 @@ COPY --chown=scraper:scraper . .
 # 포트 노출
 EXPOSE 5001
 
-# 헬스체크 추가
+# 헬스체크 추가 (호스트에서 접근 가능하도록)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:5001/timetable?url=test || exit 1
+    CMD curl -f http://localhost:5001/timetable?url=test || exit 1
+
+# 시작 스크립트 생성 (로깅 개선)
+RUN echo '#!/bin/bash\necho "Starting Flask Scraper..."\necho "Environment: $FLASK_ENV"\necho "Port: 5001"\npython app.py' > start.sh && \
+    chmod +x start.sh
 
 # 애플리케이션 실행
-CMD ["python", "app.py"]
+CMD ["./start.sh"]

@@ -3,6 +3,9 @@ pipeline {
     
     environment {
         GITHUB_CREDENTIALS = credentials('github-credentials')
+        IMAGE_NAME = 'flask-scraper'
+        CONTAINER_NAME = 'flask-scraper-app'
+        HOST_PORT = '5001'
     }
     
     stages {
@@ -25,20 +28,33 @@ pipeline {
                         echo "Working in Jenkins workspace directory"
                         cd ${WORKSPACE}
                         
-                        echo "Stopping existing containers..."
-                        docker-compose down || true
+                        echo "Stopping and removing existing container..."
+                        docker stop ${CONTAINER_NAME} || true
+                        docker rm ${CONTAINER_NAME} || true
                         
-                        echo "Building new image using Dockerfile from workspace..."
-                        docker build -t flask-scraper .
+                        echo "Removing old image..."
+                        docker rmi ${IMAGE_NAME}:latest || true
+                        
+                        echo "Building new image..."
+                        docker build -t ${IMAGE_NAME}:latest .
                         
                         echo "Starting new container..."
-                        docker-compose up -d
+                        docker run -d \
+                            --name ${CONTAINER_NAME} \
+                            --restart unless-stopped \
+                            -p ${HOST_PORT}:5001 \
+                            -e FLASK_ENV=production \
+                            -e PYTHONUNBUFFERED=1 \
+                            ${IMAGE_NAME}:latest
                         
                         echo "Waiting for service to start..."
                         sleep 30
                         
                         echo "Health check..."
-                        curl -f http://localhost:5001/timetable?url=test || exit 1
+                        curl -f http://localhost:${HOST_PORT}/timetable?url=test || exit 1
+                        
+                        echo "Container status:"
+                        docker ps | grep ${CONTAINER_NAME}
                         
                         echo "Cleaning up old images..."
                         docker image prune -f
@@ -51,9 +67,16 @@ pipeline {
     post {
         success {
             echo 'Flask Scraper Pipeline succeeded!'
+            sh 'docker logs ${CONTAINER_NAME} --tail 20'
         }
         failure {
             echo 'Flask Scraper Pipeline failed!'
+            sh '''
+                echo "Container logs:"
+                docker logs ${CONTAINER_NAME} --tail 50 || true
+                echo "Container status:"
+                docker ps -a | grep ${CONTAINER_NAME} || true
+            '''
         }
         always {
             cleanWs()
