@@ -22,14 +22,14 @@ pipeline {
                         echo "Checking Dockerfile existence..."
                         ls -la ${WORKSPACE}/Dockerfile
                         
-                        cd /home/ubuntu/flask-app
-                        echo "Changed to flask-app directory"
+                        echo "Working in Jenkins workspace directory"
+                        cd ${WORKSPACE}
                         
                         echo "Stopping existing containers..."
                         docker-compose down || true
                         
                         echo "Building new image using Dockerfile from workspace..."
-                        docker build -t flask-scraper ${WORKSPACE}
+                        docker build -t flask-scraper .
                         
                         echo "Starting new container..."
                         docker-compose up -d
