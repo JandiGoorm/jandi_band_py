@@ -1,0 +1,28 @@
+# Docker Compose 템플릿 파일
+# 실제 사용시에는 이 파일을 docker-compose.yml로 복사하여 사용하세요.
+# 
+# 사용 방법:
+# 1. EC2 서버의 /home/ubuntu/flask-app/ 디렉토리에서
+# 2. cp docker-compose.template.yml docker-compose.yml
+# 3. 필요에 따라 포트나 환경변수 수정
+
+version: '3.8'
+
+services:
+  flask-scraper:
+    image: flask-scraper:latest
+    container_name: flask-scraper-app
+    restart: unless-stopped
+    ports:
+      - "5001:5001"  # 필요시 포트 변경
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+    # volumes:  # 필요시 로그 볼륨 추가
+    #   - ./logs:/app/logs
+    # networks:  # 필요시 네트워크 설정
+    #   - flask-network
+
+# networks:
+#   flask-network:
+#     driver: bridge 

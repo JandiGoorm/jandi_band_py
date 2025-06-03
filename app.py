@@ -2,10 +2,9 @@ from flask import Flask, request, Response
 from flask_cors import CORS
 from service.scraper import TimetableLoader
 import json
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
+# 상수 정의
+ALLOWED_URL_PREFIX = "https://everytime.kr/"
 
 app = Flask(__name__)
 
@@ -14,8 +13,9 @@ app.config['JSON_SORT_KEYS'] = False
 CORS(app, resources={
     r"/*": {
         "origins": [
-            "http://localhost:5173"
-            # 운영 환경에 맞게 기입
+            "http://localhost:5173",
+            "https://rhythmeet-be.yeonjae.kr",
+            "https://*.yeonjae.kr"
         ],
         "supports_credentials": True
     }
@@ -31,8 +31,7 @@ def get_timetable():
         return Response(json.dumps(response_data, ensure_ascii=False),
                        status=400, mimetype='application/json')
 
-    allowed_url_prefix = os.getenv('ALLOWED_URL_PREFIX')
-    if not url.startswith(allowed_url_prefix):
+    if not url.startswith(ALLOWED_URL_PREFIX):
         response_data = {"success": False, "message": "지정되지 않은 URL"}
         return Response(json.dumps(response_data, ensure_ascii=False),
                        status=400, mimetype='application/json')

@@ -27,7 +27,6 @@ venv/
 ENV/
 env/
 .venv/
-.env
 
 ### IDE ###
 .vscode/
@@ -46,11 +45,6 @@ ehthumbs.db
 Thumbs.db
 
 ### Project Specific ###
-# Environment variables
-.env
-.env.local
-.env.*.local
-
 # Logs
 logs/
 *.log
@@ -60,3 +54,7 @@ yarn-error.log*
 
 # Docker
 .dockerignore
+docker-compose.yml
+
+# EC2 server only files
+nginx-updated.conf
