@@ -15,7 +15,8 @@ CORS(app, resources={
         "origins": [
             "http://localhost:5173",
             "https://rhythmeet-be.yeonjae.kr",
-            "https://*.yeonjae.kr"
+            "https://*.yeonjae.kr",
+            "https://rhythmeet.netlify.app"
         ],
         "supports_credentials": True
     }
