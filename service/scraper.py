@@ -214,6 +214,9 @@ class TimetableLoader:
 
     """ 4. 파싱 및 계산 (하위 레벨 헬퍼) """
     def _parse_time_from_style(self, style_str: str) -> Optional[Tuple[int, int]]:
+        if not style_str:
+            return None
+            
         height_match = re.search(r'height:\s*(\d+)px', style_str)
         top_match = re.search(r'top:\s*(\d+)px', style_str)
 
