@@ -25,7 +25,10 @@ CORS(app, resources={
 @app.route("/health", methods=["GET"])
 def health_check():
     """헬스체크 엔드포인트"""
-    response_data = {"status": "healthy", "service": "flask-scraper"}
+    response_data = {
+        "status": "healthy",
+        "service": "flask-scraper"
+    }
     return Response(json.dumps(response_data, ensure_ascii=False),
                    status=200, mimetype='application/json')
 
@@ -44,9 +47,15 @@ def get_timetable():
         return Response(json.dumps(response_data, ensure_ascii=False),
                        status=400, mimetype='application/json')
 
-    # TimetableLoader 인스턴스 생성 및 시간표 불러오기
-    loader = TimetableLoader()
-    result = loader.load_timetable(url)
+    # 싱글톤 모드로 시간표 로딩
+    try:
+        loader = TimetableLoader.get_instance()
+        result = loader.load_timetable(url)
+    except Exception as e:
+        TimetableLoader.reset_instance()
+        response_data = {"success": False, "message": f"서버 오류: {str(e)}"}
+        return Response(json.dumps(response_data, ensure_ascii=False),
+                       status=500, mimetype='application/json')
 
     # 응답 처리
     if not result.get("success"):
@@ -62,6 +71,10 @@ def get_timetable():
 
     return Response(json.dumps(result, ensure_ascii=False),
                    status=200, mimetype='application/json')
+
+@app.teardown_appcontext
+def cleanup_singleton(error):
+    TimetableLoader.reset_instance()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)
