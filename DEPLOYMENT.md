@@ -101,6 +101,13 @@ RUN playwright install-deps chromium  # Playwright 시스템 라이브러리 (ro
 # 보안: 비특권 사용자 생성 및 전환
 USER scraper
 RUN playwright install chromium  # 브라우저 바이너리 (사용자 권한으로 설치)
+
+# 헬스체크 설정
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:5001/health || exit 1
+
+# 시작 스크립트 (로깅 개선)
+CMD ["./start.sh"]
 ```
 
 **주요 설계 원칙:**
@@ -108,6 +115,7 @@ RUN playwright install chromium  # 브라우저 바이너리 (사용자 권한�
 2. **최적화**: 레이어 캐싱을 고려한 COPY 순서
 3. **안정성**: Playwright 의존성을 단계별로 설치
 4. **모니터링**: 헬스체크 및 로깅 설정
+5. **운영성**: 시작 스크립트를 통한 로깅 개선
 
 ### 컨테이너 실행 명령어
 ```bash
