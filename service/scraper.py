@@ -49,7 +49,21 @@ class ScraperConfig:
 class TimetableLoader:
     """ 1. 초기화 및 Public 인터페이스 """
 
+    _instance = None
+    _lock = Lock()
+
+    def __new__(cls, config: ScraperConfig = None):
+        # 싱글톤 패턴
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(TimetableLoader, cls).__new__(cls)
+                cls._instance._initialized = False
+            return cls._instance
+
     def __init__(self, config: ScraperConfig = None):
+        if self._initialized:
+            return
+
         self.config = config or ScraperConfig()
         self._browser: Optional[Browser] = None
         self._context: Optional[BrowserContext] = None
@@ -57,6 +71,18 @@ class TimetableLoader:
         self._playwright = None
         self._browser_lock = Lock()
         self.logger = logging.getLogger(__name__)
+        self._initialized = True
+
+    @classmethod
+    def get_instance(cls, config: ScraperConfig = None):
+        return cls(config)
+
+    @classmethod
+    def reset_instance(cls):
+        with cls._lock:
+            if cls._instance:
+                cls._instance.close_browser()
+                cls._instance = None
 
     def load_timetable(self, url: str) -> Dict[str, Any]:
         try:
@@ -70,12 +96,15 @@ class TimetableLoader:
                     False, "공개되지 않은 시간표입니다."
                 )
 
-            # 최종 스케줄 구성
-            timetable_data = {}
+            # 최종 스케줄 구성 - 사용 가능한 시간 먼저 계산
+            available_times = {}
             for day, time_ranges in daily_schedules.items():
                 merged_times = self._merge_time_slots(time_ranges)
                 english_day = self.config.WEEKDAY_MAPPING.get(day, day)
-                timetable_data[english_day] = merged_times
+                available_times[english_day] = merged_times
+
+            # 전체 시간 집합에서 사용 가능한 시간을 제외한 여집합 계산
+            timetable_data = self._calculate_unavailable_times(available_times)
 
             return self._build_response(
                 True,
@@ -216,7 +245,7 @@ class TimetableLoader:
     def _parse_time_from_style(self, style_str: str) -> Optional[Tuple[int, int]]:
         if not style_str:
             return None
-            
+
         height_match = re.search(r'height:\s*(\d+)px', style_str)
         top_match = re.search(r'top:\s*(\d+)px', style_str)
 
@@ -304,6 +333,42 @@ class TimetableLoader:
                     current_m = 0
 
         return sorted(merged_slots)
+
+    def _generate_full_time_slots(self) -> List[str]:
+        """전체 시간 집합 생성: 7시~23시30분 (30분 단위)"""
+        full_slots = []
+
+        # 7시부터 23시30분까지 (실질적으로 24시 마감)
+        start_hour = 7
+        end_hour = 24
+
+        current_hour = start_hour
+        current_minute = 0
+
+        while current_hour < end_hour:
+            full_slots.append(f"{current_hour:02d}:{current_minute:02d}")
+            current_minute += self.config.TIME_UNIT_MINUTES
+
+            if current_minute >= 60:
+                current_hour += 1
+                current_minute = 0
+
+        return full_slots
+
+    def _calculate_unavailable_times(self, available_times: Dict[str, List[str]]) -> Dict[str, List[str]]:
+        """전체 시간 집합에서 사용 가능한 시간을 제외한 여집합 계산"""
+        full_time_slots = set(self._generate_full_time_slots())
+        unavailable_times = {}
+
+        # 모든 요일에 대해 처리 (월~일)
+        all_weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+        for day in all_weekdays:
+            available_set = set(available_times.get(day, []))
+            unavailable_set = full_time_slots - available_set
+            unavailable_times[day] = sorted(unavailable_set)
+
+        return unavailable_times
 
     def _build_response(self, success: bool, message: str, data: Dict = None) -> Dict[str, Any]:
         response = {"success": success, "message": message}
