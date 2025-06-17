@@ -70,12 +70,14 @@ class TimetableLoader:
                     False, "공개되지 않은 시간표입니다."
                 )
 
-            # 최종 스케줄 구성
-            timetable_data = {}
+            available_times = {}
             for day, time_ranges in daily_schedules.items():
                 merged_times = self._merge_time_slots(time_ranges)
                 english_day = self.config.WEEKDAY_MAPPING.get(day, day)
-                timetable_data[english_day] = merged_times
+                available_times[english_day] = merged_times
+
+            # 전체 시간 집합에서 사용 가능한 시간을 제외한 여집합 계산
+            timetable_data = self._calculate_unavailable_times(available_times)
 
             return self._build_response(
                 True,
@@ -304,6 +306,40 @@ class TimetableLoader:
                     current_m = 0
 
         return sorted(merged_slots)
+
+    def _generate_full_time_slots(self) -> List[str]:
+        full_slots = []
+
+        # 7시부터 23시30분까지 (실질적으로 24시 마감)
+        start_hour = 7
+        end_hour = 24
+
+        current_hour = start_hour
+        current_minute = 0
+
+        while current_hour < end_hour:
+            full_slots.append(f"{current_hour:02d}:{current_minute:02d}")
+            current_minute += self.config.TIME_UNIT_MINUTES
+
+            if current_minute >= 60:
+                current_hour += 1
+                current_minute = 0
+
+        return full_slots
+
+    def _calculate_unavailable_times(self, available_times: Dict[str, List[str]]) -> Dict[str, List[str]]:
+        full_time_slots = set(self._generate_full_time_slots())
+        unavailable_times = {}
+
+        # 모든 요일에 대해 처리 (월~일)
+        all_weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+        for day in all_weekdays:
+            available_set = set(available_times.get(day, []))
+            unavailable_set = full_time_slots - available_set
+            unavailable_times[day] = sorted(unavailable_set)
+
+        return unavailable_times
 
     def _build_response(self, success: bool, message: str, data: Dict = None) -> Dict[str, Any]:
         response = {"success": success, "message": message}
