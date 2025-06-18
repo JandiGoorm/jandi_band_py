@@ -1,80 +1,74 @@
-from flask import Flask, request, Response
-from flask_cors import CORS
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, HttpUrl
+from typing import Optional
+
 from service.scraper import TimetableLoader
-import json
 
 # 상수 정의
-ALLOWED_URL_PREFIX = "https://everytime.kr/"
+ALLOWED_URL_HOST = "everytime.kr"
 
-app = Flask(__name__)
+app = FastAPI()
 
-app.config['JSON_SORT_KEYS'] = False
+# CORS 미들웨어 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "https://rhythmeet-be.yeonjae.kr",
+        "https://*.yeonjae.kr",
+        "https://rhythmeet.netlify.app"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-CORS(app, resources={
-    r"/*": {
-        "origins": [
-            "http://localhost:5173",
-            "https://rhythmeet-be.yeonjae.kr",
-            "https://*.yeonjae.kr",
-            "https://rhythmeet.netlify.app"
-        ],
-        "supports_credentials": True
-    }
-})
+class TimetableResponse(BaseModel):
+    success: bool
+    message: str
+    data: Optional[dict] = None
 
-@app.route("/health", methods=["GET"])
+class HealthCheckResponse(BaseModel):
+    status: str
+    service: str
+
+@app.get("/health", response_model=HealthCheckResponse)
 def health_check():
     """헬스체크 엔드포인트"""
-    response_data = {
-        "status": "healthy",
-        "service": "flask-scraper"
-    }
-    return Response(json.dumps(response_data, ensure_ascii=False),
-                   status=200, mimetype='application/json')
+    return {"status": "healthy", "service": "fastapi-scraper"}
 
-@app.route("/timetable", methods=["GET"])
-def get_timetable():
-    url = request.args.get("url")
-
-    # URL 검증
-    if not url:
-        response_data = {"success": False, "message": "URL 미제공"}
-        return Response(json.dumps(response_data, ensure_ascii=False),
-                       status=400, mimetype='application/json')
-
-    if not url.startswith(ALLOWED_URL_PREFIX):
-        response_data = {"success": False, "message": "지정되지 않은 URL"}
-        return Response(json.dumps(response_data, ensure_ascii=False),
-                       status=400, mimetype='application/json')
+@app.get("/timetable")
+def get_timetable(url: HttpUrl):
+    # URL 호스트 검증 (Pydantic의 HttpUrl이 기본적인 URL 형식을 검증)
+    if url.host != ALLOWED_URL_HOST and not url.host.endswith("." + ALLOWED_URL_HOST):
+        raise HTTPException(status_code=400, detail="지정되지 않은 URL입니다.")
 
     # 싱글톤 모드로 시간표 로딩
+    loader = TimetableLoader.get_instance()
     try:
-        loader = TimetableLoader.get_instance()
-        result = loader.load_timetable(url)
+        result = loader.load_timetable(str(url))
+
+        if not result.get("success"):
+            error_message = result.get("message", "알 수 없는 오류")
+            status_code = 500 if "서버 오류" in error_message else 400
+            # timetableData가 없는 경우, 빈 객체로 설정하여 응답 모델을 만족시킴
+            if "data" not in result:
+                result["data"] = {}
+            return JSONResponse(status_code=status_code, content=result)
+
+        return JSONResponse(status_code=200, content=result)
+
     except Exception as e:
+        # 예상치 못한 에러 발생 시 항상 리소스 정리
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+    finally:
+        # 성공/실패 여부와 관계없이 항상 싱글톤 인스턴스 정리
         TimetableLoader.reset_instance()
-        response_data = {"success": False, "message": f"서버 오류: {str(e)}"}
-        return Response(json.dumps(response_data, ensure_ascii=False),
-                       status=500, mimetype='application/json')
 
-    # 응답 처리
-    if not result.get("success"):
-        error_message = result.get("message", "")
-        if "공개되지 않은 시간표" in error_message:
-            status_code = 400
-        elif "서버 오류" in error_message:
-            status_code = 500
-        else:
-            status_code = 400
-        return Response(json.dumps(result, ensure_ascii=False),
-                       status=status_code, mimetype='application/json')
 
-    return Response(json.dumps(result, ensure_ascii=False),
-                   status=200, mimetype='application/json')
-
-@app.teardown_appcontext
-def cleanup_singleton(error):
-    TimetableLoader.reset_instance()
-
+# uvicorn으로 실행하기 위한 설정
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=5001, log_level="info")
