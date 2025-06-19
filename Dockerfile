@@ -3,11 +3,10 @@ FROM python:3.12-slim
 # 환경 변수 설정
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV FLASK_ENV=production
 
 # 레이블 추가 (컨테이너 관리용)
 LABEL maintainer="jandi-band"
-LABEL service="flask-scraper"
+LABEL service="fastapi-scraper"
 
 # 시스템 패키지 설치 (Playwright 의존성)
 RUN apt-get update && apt-get install -y \
@@ -48,7 +47,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:5001/health || exit 1
 
 # 시작 스크립트 생성 (로깅 개선)
-RUN echo '#!/bin/bash\necho "Starting Flask Scraper..."\necho "Environment: $FLASK_ENV"\necho "Port: 5001"\npython app.py' > start.sh && \
+RUN echo '#!/bin/bash\necho "Starting FastAPI Scraper..."\necho "Port: 5001"\npython app.py' > start.sh && \
     chmod +x start.sh
 
 # 애플리케이션 실행
