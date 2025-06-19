@@ -3,8 +3,8 @@ pipeline {
     
     environment {
         GITHUB_CREDENTIALS = credentials('github-credentials')
-        IMAGE_NAME = 'flask-scraper'
-        CONTAINER_NAME = 'flask-scraper-app'
+        IMAGE_NAME = 'fastapi-scraper'
+        CONTAINER_NAME = 'fastapi-scraper-app'
         HOST_PORT = '5001'
     }
     
@@ -39,12 +39,11 @@ pipeline {
                         docker build -t ${IMAGE_NAME}:latest .
                         
                         echo "Starting new container..."
-                        docker run -d \
-                            --name ${CONTAINER_NAME} \
-                            --restart unless-stopped \
-                            -p ${HOST_PORT}:5001 \
-                            -e FLASK_ENV=production \
-                            -e PYTHONUNBUFFERED=1 \
+                        docker run -d \\
+                            --name ${CONTAINER_NAME} \\
+                            --restart unless-stopped \\
+                            -p ${HOST_PORT}:5001 \\
+                            -e PYTHONUNBUFFERED=1 \\
                             ${IMAGE_NAME}:latest
                         
                         echo "Waiting for service to start..."
@@ -77,11 +76,11 @@ pipeline {
     
     post {
         success {
-            echo 'Flask Scraper Pipeline succeeded!'
+            echo 'FastAPI Scraper Pipeline succeeded!'
             sh 'docker logs ${CONTAINER_NAME} --tail 20'
         }
         failure {
-            echo 'Flask Scraper Pipeline failed!'
+            echo 'FastAPI Scraper Pipeline failed!'
             sh '''
                 echo "Container logs:"
                 docker logs ${CONTAINER_NAME} --tail 50 || true
