@@ -1,503 +1,192 @@
-from playwright.async_api import async_playwright, Page, Browser, BrowserContext, Playwright
-import re
-import math
-from typing import Dict, List, Tuple, Optional, Any
-from dataclasses import dataclass
-from collections import defaultdict
 import asyncio
 import logging
-import time
-from contextlib import asynccontextmanager
+from collections import defaultdict
+from typing import Dict, List, Optional, Any
+from urllib.parse import urlparse
 
+import httpx
+import xmltodict
 
-@dataclass
-class ContextInfo:
-    context: BrowserContext
-    is_permanent: bool
-    last_used: float
-    created_at: float
+logger = logging.getLogger(__name__)
 
-
-@dataclass
-class ScraperConfig:
-    initial_contexts: int = 2
-    max_contexts: int = 5
-    context_idle_timeout: int = 300
-
-    headless: bool = True
-    timeout: int = 30000
-
-    WEEKDAY_MAPPING: Dict[str, str] = None
-
-    def __post_init__(self):
-        if self.WEEKDAY_MAPPING is None:
-            self.WEEKDAY_MAPPING = {
-                "월": "Mon", "화": "Tue", "수": "Wed", "목": "Thu",
-                "금": "Fri", "토": "Sat", "일": "Sun"
-            }
-
-
-class BrowserManager:
-    def __init__(self, config: ScraperConfig = None):
-        self.config = config or ScraperConfig()
-        self._playwright: Optional[Playwright] = None
-        self._browser: Optional[Browser] = None
-
-        self._context_infos: List[ContextInfo] = []
-        self._available_contexts: asyncio.Queue = asyncio.Queue()
-        self._lock = asyncio.Lock()
-
-        self._cleanup_task: Optional[asyncio.Task] = None
-        self._is_started = False
-
-        self.logger = logging.getLogger(__name__)
-
-    async def start_browser(self):
-        async with self._lock:
-            if self._is_started:
-                return
-
-            try:
-                self._playwright = await async_playwright().start()
-                self._browser = await self._playwright.chromium.launch(
-                    headless=self.config.headless
-                )
-
-                for i in range(self.config.initial_contexts):
-                    context = await self._create_context()
-                    context_info = ContextInfo(
-                        context=context,
-                        is_permanent=True,
-                        last_used=time.time(),
-                        created_at=time.time()
-                    )
-                    self._context_infos.append(context_info)
-                    await self._available_contexts.put(context_info)
-
-                self._cleanup_task = asyncio.create_task(self._background_cleanup())
-
-                self._is_started = True
-                self.logger.info(f"Playwright 브라우저가 {self.config.initial_contexts}개의 영구 컨텍스트로 시작되었습니다")
-
-            except Exception as e:
-                self.logger.error(f"브라우저 시작 실패: {e}")
-                await self._cleanup()
-                raise
-
-    async def close_browser(self):
-        async with self._lock:
-            if not self._is_started:
-                return
-
-            if self._cleanup_task:
-                self._cleanup_task.cancel()
-                try:
-                    await self._cleanup_task
-                except asyncio.CancelledError:
-                    pass
-                self._cleanup_task = None
-
-            await self._cleanup()
-            self._is_started = False
-            self.logger.info("Playwright 브라우저가 중지되었습니다")
-
-    @asynccontextmanager
-    async def get_page(self):
-        if not self._is_started:
-            raise RuntimeError("Browser is not started. Call start_browser() first.")
-
-        context_info = None
-        page = None
-
-        try:
-            # 사용 가능한 컨텍스트 가져오기
-            try:
-                context_info = await asyncio.wait_for(
-                    self._available_contexts.get(),
-                    timeout=5.0
-                )
-            except asyncio.TimeoutError:
-                self.logger.warning("컨텍스트 획득 타임아웃, 새 컨텍스트 생성 시도")
-                if len(self._context_infos) < self.config.max_contexts:
-                    context = await self._create_context()
-                    context_info = ContextInfo(
-                        context=context,
-                        is_permanent=False,
-                        last_used=time.time(),
-                        created_at=time.time()
-                    )
-                    async with self._lock:
-                        self._context_infos.append(context_info)
-                    self.logger.info(f"새로운 임시 컨텍스트 생성됨. 풀 크기: {len(self._context_infos)}")
-                else:
-                    context_info = await self._available_contexts.get()
-
-            if context_info is None or context_info.context is None:
-                raise RuntimeError("브라우저 컨텍스트를 가져올 수 없습니다")
-
-            context_info.last_used = time.time()
-            page = await context_info.context.new_page()
-            page.set_default_timeout(self.config.timeout)
-
-            yield page
-
-        except Exception as e:
-            self.logger.error(f"get_page 중 오류: {e}")
-            raise
-        finally:
-            if page:
-                try:
-                    await page.close()
-                except Exception as e:
-                    self.logger.warning(f"페이지 종료 중 오류: {e}")
-
-            if context_info and context_info in self._context_infos:
-                try:
-                    await self._available_contexts.put(context_info)
-                except Exception as e:
-                    self.logger.warning(f"컨텍스트 풀 반환 중 오류: {e}")
-
-    async def _create_context(self) -> BrowserContext:
-        if not self._browser:
-            raise RuntimeError("Browser is not started")
-
-        context = await self._browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        )
-
-        # 리소스 차단 설정
-        try:
-            blocked_patterns = "**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}"
-            await context.route(blocked_patterns, lambda route: route.abort())
-        except Exception as e:
-            self.logger.warning(f"리소스 차단 설정 실패: {e}")
-
-        return context
-
-    async def _background_cleanup(self):
-        while True:
-            try:
-                await asyncio.sleep(60)
-                await self._cleanup_idle_contexts()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error(f"백그라운드 정리 중 오류: {e}")
-
-    async def _cleanup_idle_contexts(self):
-        async with self._lock:
-            current_time = time.time()
-            contexts_to_remove = []
-
-            for context_info in self._context_infos:
-                if context_info.is_permanent:
-                    continue
-
-                idle_time = current_time - context_info.last_used
-                if idle_time > self.config.context_idle_timeout:
-                    contexts_to_remove.append(context_info)
-
-            for context_info in contexts_to_remove:
-                try:
-                    await context_info.context.close()
-                    self._context_infos.remove(context_info)
-                    self.logger.info(f"유휴 컨텍스트 제거됨. 풀 크기: {len(self._context_infos)}")
-                except Exception as e:
-                    self.logger.warning(f"유휴 컨텍스트 제거 중 오류: {e}")
-
-            await self._clean_available_queue()
-
-    async def _clean_available_queue(self):
-        temp_queue = []
-
-        while not self._available_contexts.empty():
-            try:
-                context_info = self._available_contexts.get_nowait()
-                if context_info in self._context_infos:
-                    temp_queue.append(context_info)
-            except asyncio.QueueEmpty:
-                break
-
-        for context_info in temp_queue:
-            await self._available_contexts.put(context_info)
-
-    async def _cleanup(self):
-        # 모든 컨텍스트 정리
-        for context_info in self._context_infos:
-            try:
-                await context_info.context.close()
-            except Exception as e:
-                self.logger.warning(f"컨텍스트 종료 중 오류: {e}")
-
-        self._context_infos.clear()
-
-        # 큐 비우기
-        while not self._available_contexts.empty():
-            try:
-                self._available_contexts.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-
-        # 브라우저 및 playwright 정리
-        if self._browser:
-            try:
-                await self._browser.close()
-            except Exception as e:
-                self.logger.warning(f"브라우저 종료 중 오류: {e}")
-            finally:
-                self._browser = None
-
-        if self._playwright:
-            try:
-                await self._playwright.stop()
-            except Exception as e:
-                self.logger.warning(f"Playwright 중지 중 오류: {e}")
-            finally:
-                self._playwright = None
+DAY_MAPPING = {
+    "0": "Mon", "1": "Tue", "2": "Wed", "3": "Thu",
+    "4": "Fri", "5": "Sat", "6": "Sun"
+}
+MINUTES_PER_OFFSET = 5
+TIME_UNIT_MINUTES = 30
+TIMEOUT = 30
+MAX_RETRIES = 3
 
 
 class TimetableLoader:
-    """시간표 파싱 로직을 담당하는 클래스"""
+    BASE_URL = "https://api.everytime.kr"
+    TIMETABLE_ENDPOINT = "/find/timetable/table/friend"
 
-    # CSS 선택자 상수들
-    TABLE_HEAD_CLASS = ".tablehead"
-    TABLE_BODY_CLASS = ".tablebody"
-    SUBJECT_CLASS = ".subject"
-    SUBJECT_CENTER_RATIO = 0.5
-
-    def __init__(self, config: ScraperConfig = None):
-        self.config = config or ScraperConfig()
-        self.time_calc = TimeCalculator()
-        self.response_builder = ResponseBuilder()
+    def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-    async def load_timetable(self, url: str, page: Page) -> Dict[str, Any]:
+    async def load_timetable(self, url: str) -> Dict[str, Any]:
+        """(메인) 시간표 불러오기 함수"""
         try:
-            await page.goto(url)
-            weekdays = await self._load_weekdays(page)
-            daily_schedules = await self._load_subject_data(page, weekdays)
+            # 입력받은 URL에서 identifier 추출
+            identifier = self._extract_identifier_from_url(url)
+            if not identifier:
+                return self._build_response(
+                    False, "유효하지 않은 URL입니다. identifier를 찾을 수 없습니다."
+                )
 
-            if not daily_schedules:
-                return self.response_builder.build_response(
+            # 에브리타임 API를 호출해서 XML 시간표 데이터 가져오기
+            xml_data = await self._get_timetable_data(identifier)
+            if not xml_data:
+                return self._build_response(
+                    False, "시간표 데이터를 가져올 수 없습니다."
+                )
+
+            # XML 시간표 데이터를 파싱하여 시간표 정보 추출
+            available_times = self._parse_timetable_xml(xml_data)
+            if not available_times:
+                return self._build_response(
                     False, "공개되지 않은 시간표입니다."
                 )
 
-            # 최종 스케줄 구성
-            available_times = {}
-            for day, time_ranges in daily_schedules.items():
-                merged_times = self.time_calc.merge_time_slots(time_ranges)
-                english_day = self.config.WEEKDAY_MAPPING.get(day, day)
-                available_times[english_day] = merged_times
+            # 전체 시간 슬롯에서 사용 가능한 시간을 제외한 여집합 계산
+            timetable_data = self._calc_unavailable_times(available_times)
 
-            timetable_data = self.time_calc.calculate_unavailable_times(available_times)
-
-            return self.response_builder.build_response(
+            return self._build_response(
                 True,
                 "유저 시간표 불러오기 성공",
                 {"timetableData": timetable_data}
             )
 
-        except TimeoutError:
-            self.logger.error(f"페이지 로딩 타임아웃: {url}")
-            return self.response_builder.build_response(False, "페이지 로딩 시간이 초과되었습니다.")
-
-        except ValueError as e:
-            self.logger.error(f"데이터 파싱 오류: {e}")
-            return self.response_builder.build_response(False, str(e))
-
         except Exception as e:
-            self.logger.error(f"예상치 못한 오류: {e}")
-            return self.response_builder.build_response(False, f"서버 오류: {str(e)}")
+            logger.error(f"시간표 로딩 중 예상치 못한 오류: {e}")
+            return self._build_response(False, f"서버 오류: {str(e)}")
 
-    async def _load_weekdays(self, page: Page) -> List[str]:
+    def _extract_identifier_from_url(self, url: str) -> Optional[str]:
         try:
-            await page.wait_for_selector(
-                self.TABLE_HEAD_CLASS,
-                timeout=self.time_calc.WAIT_TIMEOUT
-            )
-            td_elements = page.locator(f"{self.TABLE_HEAD_CLASS} td")
-            days = []
+            parsed_url = urlparse(url)
 
-            for i in range(await td_elements.count()):
-                text_content = await td_elements.nth(i).text_content()
-                text = text_content.strip() if text_content else ""
-                if text:
-                    days.append(text)
+            if 'everytime.kr' not in parsed_url.netloc:
+                logger.warning(f"에브리타임 도메인이 아닙니다: {parsed_url.netloc}")
+                return None
 
-            if not days:
-                raise ValueError("요일 정보를 찾을 수 없습니다")
+            path_parts = parsed_url.path.strip('/').split('/')
+            if len(path_parts) >= 1 and path_parts[0].startswith('@') and len(path_parts[0]) > 1:
+                return path_parts[0][1:]  # @ 제거하고 identifier 추출
 
-            return days
-
-        except Exception as e:
-            if "Timeout" in str(e):
-                raise TimeoutError("시간표 헤더를 찾을 수 없습니다")
-            raise
-
-    async def _load_subject_data(
-        self, page: Page, weekdays: List[str]
-    ) -> Dict[str, List[Tuple[str, str]]]:
-        try:
-            await page.wait_for_selector(
-                self.TABLE_BODY_CLASS,
-                timeout=self.time_calc.WAIT_TIMEOUT
-            )
-            subjects = page.locator(f"{self.TABLE_BODY_CLASS} {self.SUBJECT_CLASS}")
-
-            subject_count = await subjects.count()
-            if subject_count == 0:
-                self.logger.warning("과목 요소를 찾을 수 없지만, 빈 시간표일 수 있습니다.")
-                return defaultdict(list)
-
-        except Exception:
-            raise ValueError("시간표 본문을 찾을 수 없습니다")
-
-        daily_schedules = defaultdict(list)
-
-        for i in range(await subjects.count()):
-            subject = subjects.nth(i)
-            style = await subject.get_attribute("style")
-            time_data = self._parse_time_from_style(style)
-
-            if not time_data:
-                continue
-
-            height, top = time_data
-            start_time, end_time = self.time_calc.calculate_time_range(height, top)
-            day = await self._find_subject_day(subject, weekdays, page)
-
-            daily_schedules[day].append((start_time, end_time))
-
-        return daily_schedules
-
-    def _parse_time_from_style(self, style_str: Optional[str]) -> Optional[Tuple[int, int]]:
-        if not style_str:
+            logger.warning(f"올바른 에브리타임 시간표 URL 형식이 아닙니다: {url}")
             return None
 
-        height_match = re.search(r'height:\s*(\d+)px', style_str)
-        top_match = re.search(r'top:\s*(\d+)px', style_str)
-
-        if not height_match or not top_match:
+        except Exception as e:
+            logger.error(f"URL에서 identifier 추출 실패: {e}")
             return None
 
-        height = int(height_match.group(1))
-        top = int(top_match.group(1))
-
-        return height, top
-
-    async def _find_subject_day(self, subject_element, weekdays: List[str], page: Page) -> str:
-        try:
-            subject_rect = await subject_element.bounding_box()
-            if not subject_rect:
-                return "알 수 없음"
-
-            tablehead = page.locator(self.TABLE_HEAD_CLASS).first
-            td_elements = tablehead.locator('td')
-
-            subject_x = (
-                subject_rect['x'] +
-                subject_rect['width'] * self.SUBJECT_CENTER_RATIO
+    async def _get_timetable_data(self, identifier: str) -> Optional[str]:
+        headers = {
+            'accept': '*/*',
+            'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'user-agent': (
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/137.0.0.0 Safari/537.36'
             )
+        }
 
-            for i in range(await td_elements.count()):
-                td_rect = await td_elements.nth(i).bounding_box()
-                if (td_rect and
-                    td_rect['x'] <= subject_x <= td_rect['x'] + td_rect['width']):
-                    return weekdays[i] if i < len(weekdays) else "알 수 없음"
+        data = {
+            'identifier': identifier,
+            'friendInfo': 'true'
+        }
 
-            return "알 수 없음"
+        for attempt in range(MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+                    response = await client.post(
+                        f"{self.BASE_URL}{self.TIMETABLE_ENDPOINT}",
+                        headers=headers,
+                        data=data
+                    )
+
+                    if response.status_code == 200:
+                        return response.text
+                    else:
+                        logger.warning(
+                            f"API 호출 실패 (시도 {attempt + 1}): {response.status_code}"
+                        )
+
+            except httpx.TimeoutException:
+                logger.warning(f"API 호출 타임아웃 (시도 {attempt + 1})")
+            except Exception as e:
+                logger.error(f"API 호출 중 오류 (시도 {attempt + 1}): {e}")
+
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(1)
+
+        return None
+
+    def _parse_timetable_xml(self, xml_data: str) -> Dict[str, List[str]]:
+        def _ensure_list(value):
+            if not value:
+                return []
+            return value if isinstance(value, list) else [value]
+
+        try:
+            data = xmltodict.parse(xml_data)
+            table = data.get('response', {}).get('table', {})
+            subjects = _ensure_list(table.get('subject'))
+
+            # 요일별 시간 슬롯 수집 (30분 단위)
+            schedules = defaultdict(set)
+            for subject in subjects:
+                if not isinstance(subject, dict):
+                    continue
+                for timeblock in _ensure_list(subject.get('time', {}).get('data')):
+                    if not isinstance(timeblock, dict):
+                        continue
+                    day = timeblock.get('@day')
+                    if day not in DAY_MAPPING:
+                        continue
+
+                    start_time_minutes = int(timeblock.get('@starttime', 0)) * MINUTES_PER_OFFSET
+                    end_time_minutes = int(timeblock.get('@endtime', 0)) * MINUTES_PER_OFFSET
+
+                    # 분을 30분 단위로 내림 (에타 시간표가 30분 단위가 아니어서 꼬이는 것 대비)
+                    hours = start_time_minutes // 60
+                    mins = start_time_minutes % 60
+                    current_minutes = hours * 60 if mins < 30 else hours * 60 + 30
+
+                    temp_slots = []
+                    while current_minutes < end_time_minutes:
+                        slot_hours = current_minutes // 60
+                        slot_minutes = current_minutes % 60
+                        temp_slots.append(f"{slot_hours:02d}:{slot_minutes:02d}")
+                        current_minutes += TIME_UNIT_MINUTES
+
+                    schedules[DAY_MAPPING[day]].update(temp_slots)
+
+            # 세트를 정렬된 리스트로 변환
+            return {day: sorted(time_slots) for day, time_slots in schedules.items()}
 
         except Exception as e:
-            self.logger.debug(f"요일 찾기 실패: {e}")
-            return "알 수 없음"
+            logger.error(f"XML 파싱 중 오류: {e}")
+            return {}
 
-
-class TimeCalculator:
-    WAIT_TIMEOUT = 10000
-    TIME_UNIT_MINUTES = 30
-    START_HOUR = 9
-    BASE_TOP_OFFSET = 540
-    PIXEL_PER_30MIN = 30
-    HEIGHT_ADJUSTMENT = 1
-
-    def pixels_to_time(self, pixels: int) -> str:
-        offset_pixels = pixels - self.BASE_TOP_OFFSET
-        time_slots = offset_pixels // self.PIXEL_PER_30MIN
-        minutes = time_slots * self.TIME_UNIT_MINUTES
-
-        hour = self.START_HOUR + (minutes // 60)
-        minute = minutes % 60
-        return f"{hour:02d}:{minute:02d}"
-
-    def calculate_time_range(self, height: int, top: int) -> Tuple[str, str]:
-        """높이와 위치로부터 시작-종료 시간 계산"""
-        start_time = self.pixels_to_time(top)
-
-        adjusted_height = height - self.HEIGHT_ADJUSTMENT
-        time_slots = math.ceil(adjusted_height / self.PIXEL_PER_30MIN)
-        duration_minutes = time_slots * self.TIME_UNIT_MINUTES
-
-        offset_pixels = top - self.BASE_TOP_OFFSET
-        start_time_slots = offset_pixels // self.PIXEL_PER_30MIN
-        start_minutes = start_time_slots * self.TIME_UNIT_MINUTES
-
-        end_total_minutes = start_minutes + duration_minutes
-        end_hour = self.START_HOUR + (end_total_minutes // 60)
-        end_minute = end_total_minutes % 60
-
-        end_time = f"{end_hour:02d}:{end_minute:02d}"
-        return start_time, end_time
-
-    def merge_time_slots(self, time_ranges: List[Tuple[str, str]]) -> List[str]:
-        """시간 범위들을 병합하여 30분 단위 슬롯으로 변환"""
-        if not time_ranges:
-            return []
-
-        time_ranges.sort()
-        merged_slots = set()
-
-        for start_str, end_str in time_ranges:
-            start_h, start_m = map(int, start_str.split(":"))
-            end_h, end_m = map(int, end_str.split(":"))
-
-            current_h, current_m = start_h, start_m
-            while (current_h, current_m) < (end_h, end_m):
-                merged_slots.add(f"{current_h:02}:{current_m:02}")
-                current_m += self.TIME_UNIT_MINUTES
-                if current_m >= 60:
-                    current_h += 1
-                    current_m = 0
-
-        return sorted(merged_slots)
-
-    def generate_full_time_slots(self) -> List[str]:
-        """전체 시간 집합 생성: 7시~23시30분 (30분 단위)"""
+    def _calc_unavailable_times(self, available_times: Dict[str, List[str]]) -> Dict[str, List[str]]:
         full_slots = []
         start_hour, end_hour = 7, 24
-
         current_hour = start_hour
         current_minute = 0
 
         while current_hour < end_hour:
             full_slots.append(f"{current_hour:02d}:{current_minute:02d}")
-            current_minute += self.TIME_UNIT_MINUTES
+            current_minute += TIME_UNIT_MINUTES
 
             if current_minute >= 60:
                 current_hour += 1
                 current_minute = 0
 
-        return full_slots
-
-    def calculate_unavailable_times(self, available_times: Dict[str, List[str]]) -> Dict[str, List[str]]:
-        """전체 시간 집합에서 사용 가능한 시간을 제외한 여집합 계산"""
-        full_time_slots = set(self.generate_full_time_slots())
+        full_time_slots = set(full_slots)
         unavailable_times = {}
-
         all_weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
         for day in all_weekdays:
@@ -507,40 +196,8 @@ class TimeCalculator:
 
         return unavailable_times
 
-
-class ResponseBuilder:
-    @staticmethod
-    def build_response(success: bool, message: str, data: Dict = None) -> Dict[str, Any]:
+    def _build_response(self, success: bool, message: str, data: Dict = None) -> Dict[str, Any]:
         response = {"success": success, "message": message}
         if data:
             response["data"] = data
         return response
-
-
-# 전역 브라우저 매니저 관리
-_browser_manager: Optional[BrowserManager] = None
-_manager_lock: Optional[asyncio.Lock] = None
-
-
-async def get_browser_manager(config: ScraperConfig = None) -> BrowserManager:
-    global _browser_manager, _manager_lock
-
-    if _manager_lock is None:
-        _manager_lock = asyncio.Lock()
-
-    async with _manager_lock:
-        if _browser_manager is None:
-            _browser_manager = BrowserManager(config)
-        return _browser_manager
-
-
-async def cleanup_browser_manager():
-    global _browser_manager, _manager_lock
-
-    if _manager_lock is None:
-        _manager_lock = asyncio.Lock()
-
-    async with _manager_lock:
-        if _browser_manager:
-            await _browser_manager.close_browser()
-            _browser_manager = None
