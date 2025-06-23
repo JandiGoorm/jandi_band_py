@@ -9,10 +9,13 @@ import xmltodict
 
 logger = logging.getLogger(__name__)
 
+START_HOUR = 7
+END_HOUR = 24
 DAY_MAPPING = {
     "0": "Mon", "1": "Tue", "2": "Wed", "3": "Thu",
     "4": "Fri", "5": "Sat", "6": "Sun"
 }
+ALL_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 MINUTES_PER_OFFSET = 5
 TIME_UNIT_MINUTES = 30
 TIMEOUT = 30
@@ -23,10 +26,32 @@ class TimetableLoader:
     BASE_URL = "https://api.everytime.kr"
     TIMETABLE_ENDPOINT = "/find/timetable/table/friend"
 
+    _full_time_slots = None
+
+    @classmethod
+    def _initialize_full_time_slots(cls) -> set[str]:
+        full_slots = []
+        current_hour = START_HOUR
+        current_minute = 0
+
+        while current_hour < END_HOUR:
+            full_slots.append(f"{current_hour:02d}:{current_minute:02d}")
+            current_minute += TIME_UNIT_MINUTES
+            if current_minute >= 60:
+                current_hour += 1
+                current_minute = 0
+        return set(full_slots)
+
+    @classmethod
+    def get_full_time_slots(cls) -> set[str]:
+        if cls._full_time_slots is None:
+            cls._full_time_slots = cls._initialize_full_time_slots()
+        return cls._full_time_slots
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        # httpx.AsyncClient를 인스턴스 변수로 생성하고 재사용
         self.client = httpx.AsyncClient(timeout=TIMEOUT)
+        self.get_full_time_slots()
 
     async def close(self):
         """리소스 정리를 위한 메서드"""
@@ -185,24 +210,10 @@ class TimetableLoader:
             return {}
 
     def _calc_unavailable_times(self, available_times: Dict[str, List[str]]) -> Dict[str, List[str]]:
-        full_slots = []
-        start_hour, end_hour = 7, 24
-        current_hour = start_hour
-        current_minute = 0
-
-        while current_hour < end_hour:
-            full_slots.append(f"{current_hour:02d}:{current_minute:02d}")
-            current_minute += TIME_UNIT_MINUTES
-
-            if current_minute >= 60:
-                current_hour += 1
-                current_minute = 0
-
-        full_time_slots = set(full_slots)
         unavailable_times = {}
-        all_weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        full_time_slots = self.get_full_time_slots()
 
-        for day in all_weekdays:
+        for day in ALL_WEEKDAYS:
             available_set = set(available_times.get(day, []))
             unavailable_set = full_time_slots - available_set
             unavailable_times[day] = sorted(unavailable_set)
