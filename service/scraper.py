@@ -49,9 +49,7 @@ class TimetableLoader:
         return cls._full_time_slots
 
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
         self.client = httpx.AsyncClient(timeout=TIMEOUT)
-        self.get_full_time_slots()
 
     async def close(self):
         """리소스 정리를 위한 메서드"""
