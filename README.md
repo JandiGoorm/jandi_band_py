@@ -6,18 +6,12 @@ Docker 컨테이너와 Jenkins CI/CD를 통해 자동 배포됩니다.
 ## 주요 기능
 
 - 학교 시간표 불러오기
-- CORSMiddleware에 등록되면 웹 애플리케이션에서 직접 호출 가능
-- Docker 컨테이너 기반 배포
-- Jenkins CI/CD 자동 배포
-- 고성능 HTTP 클라이언트 사용 (httpx)
-- XML 응답 파싱 (xmltodict)
-- 에러 처리 및 상태 코드 관리
 
 ## 기술 스택
 
 - **Backend**: Python, FastAPI, Uvicorn
 - **HTTP Client**: httpx (비동기 HTTP 클라이언트)
-- **XML Parsing**: xmltodict
+- **XML Parsing**: lxml (고성능 XML 파서)
 - **Containerization**: Docker
 - **CI/CD**: Jenkins
 - **Reverse Proxy**: Nginx
@@ -177,9 +171,16 @@ const getTimetable = async (url) => {
 };
 ```
 
-## 아키텍처 개선점
+## 리팩토링 및 개선사항
 
-### API 직접 호출 방식 (Playwright → httpx + xmltodict)
+### 🔧 주요 변경사항
+
+- **HTTP 클라이언트**: `httpx`로 `https://api.everytime.kr` 직접 호출
+- **XML 파싱**: `lxml`을 사용한 고성능 파싱
+- **아키텍처**: 복잡한 브라우저 관리 시스템 → 단순한 HTTP 클라이언트
+- **리소스 관리**: 연결 풀링 및 비동기 처리로 효율성 극대화
+
+### 🎯 주요 개선 효과
 
 **이전 방식 (Playwright):**
 - 브라우저 자동화를 통한 DOM 조작
@@ -190,13 +191,9 @@ const getTimetable = async (url) => {
 **현재 방식 (API 직접 호출):**
 - 에브리타임 API 직접 호출 (`https://api.everytime.kr`)
 - 낮은 메모리 사용량 (~100MB)
-- 빠른 응답 시간 (~0.1-0.5초)
+- 빠른 응답 시간 (~0.1초)
 - 단순한 HTTP 클라이언트 시스템
-
-### 성능 개선 결과
-- **응답 시간**: 90% 단축 (3-5초 → 0.1-0.5초)
-- **메모리 사용량**: 87% 감소 (800MB → 100MB)
-- **Docker 이미지 크기**: 86% 감소 (1.5GB → 200MB)
+- XML 파싱 최적화 (lxml 사용)
 
 ## 배포 및 운영
 
