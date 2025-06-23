@@ -25,6 +25,19 @@ class TimetableLoader:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
+        # httpx.AsyncClient를 인스턴스 변수로 생성하고 재사용
+        self.client = httpx.AsyncClient(timeout=TIMEOUT)
+
+    async def close(self):
+        """리소스 정리를 위한 메서드"""
+        if self.client and not self.client.is_closed:
+            try:
+                await self.client.aclose()
+                logger.info("HTTP 클라이언트 정리 완료")
+            except Exception as e:
+                logger.error(f"HTTP 클라이언트 정리 중 오류: {e}")
+            finally:
+                self.client = None
 
     async def load_timetable(self, url: str) -> Dict[str, Any]:
         """(메인) 시간표 불러오기 함수"""
@@ -100,19 +113,19 @@ class TimetableLoader:
 
         for attempt in range(MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-                    response = await client.post(
-                        f"{self.BASE_URL}{self.TIMETABLE_ENDPOINT}",
-                        headers=headers,
-                        data=data
-                    )
+                # 동시성에 안전한 클라이언트 인스턴스 httpx.AsyncClient를 재사용함
+                response = await self.client.post(
+                    f"{self.BASE_URL}{self.TIMETABLE_ENDPOINT}",
+                    headers=headers,
+                    data=data
+                )
 
-                    if response.status_code == 200:
-                        return response.text
-                    else:
-                        logger.warning(
-                            f"API 호출 실패 (시도 {attempt + 1}): {response.status_code}"
-                        )
+                if response.status_code == 200:
+                    return response.text
+                else:
+                    logger.warning(
+                        f"API 호출 실패 (시도 {attempt + 1}): {response.status_code}"
+                    )
 
             except httpx.TimeoutException:
                 logger.warning(f"API 호출 타임아웃 (시도 {attempt + 1})")
