@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Any
 from urllib.parse import urlparse
 
 import httpx
-import xmltodict
+from lxml import etree
 
 logger = logging.getLogger(__name__)
 
@@ -163,30 +163,25 @@ class TimetableLoader:
         return None
 
     def _parse_timetable_xml(self, xml_data: str) -> Dict[str, List[str]]:
-        def _ensure_list(value):
-            if not value:
-                return []
-            return value if isinstance(value, list) else [value]
-
         try:
-            data = xmltodict.parse(xml_data)
-            table = data.get('response', {}).get('table', {})
-            subjects = _ensure_list(table.get('subject'))
+            root = etree.fromstring(xml_data.encode('utf-8'))
+            subjects = root.xpath('//table/subject')
+            if not subjects:
+                logger.warning("시간표에서 subject 요소를 찾을 수 없습니다")
+                return {}
 
-            # 요일별 시간 슬롯 수집 (30분 단위)
-            schedules = defaultdict(set)
+            schedules = defaultdict(set)  # 요일별 시간 슬롯 수집 (30분 단위)
+
             for subject in subjects:
-                if not isinstance(subject, dict):
-                    continue
-                for timeblock in _ensure_list(subject.get('time', {}).get('data')):
-                    if not isinstance(timeblock, dict):
-                        continue
-                    day = timeblock.get('@day')
+                time_blocks = subject.xpath('.//time/data')  # 각각의 타임블록 찾기
+
+                for timeblock in time_blocks:
+                    day = timeblock.get('day')
                     if day not in DAY_MAPPING:
                         continue
 
-                    start_time_minutes = int(timeblock.get('@starttime', 0)) * MINUTES_PER_OFFSET
-                    end_time_minutes = int(timeblock.get('@endtime', 0)) * MINUTES_PER_OFFSET
+                    start_time_minutes = int(timeblock.get('starttime', 0)) * MINUTES_PER_OFFSET
+                    end_time_minutes = int(timeblock.get('endtime', 0)) * MINUTES_PER_OFFSET
 
                     # 분을 30분 단위로 내림 (에타 시간표가 30분 단위가 아니어서 꼬이는 것 대비)
                     hours = start_time_minutes // 60
@@ -202,9 +197,11 @@ class TimetableLoader:
 
                     schedules[DAY_MAPPING[day]].update(temp_slots)
 
-            # 세트를 정렬된 리스트로 변환
             return {day: sorted(time_slots) for day, time_slots in schedules.items()}
 
+        except etree.XMLSyntaxError as e:
+            logger.error(f"XML 파싱 중 구문 오류: {e}")
+            return {}
         except Exception as e:
             logger.error(f"XML 파싱 중 오류: {e}")
             return {}

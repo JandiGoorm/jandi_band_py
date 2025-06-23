@@ -2,4 +2,4 @@ fastapi
 uvicorn[standard]
 pydantic
 httpx
-xmltodict
+lxml
