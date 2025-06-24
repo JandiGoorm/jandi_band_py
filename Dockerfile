@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 LABEL maintainer="jandi-band"
 LABEL service="fastapi-scraper"
 
-# 시스템 패키지 설치
+# 시스템 패키지 설치 (Playwright 의존성)
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -29,8 +29,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# 사용자로 전환
+# Playwright 시스템 의존성을 root로 설치
+RUN playwright install-deps chromium
+
+# 사용자로 전환 후 Playwright 브라우저만 설치
 USER scraper
+RUN playwright install chromium
 
 # 소스 코드 복사
 COPY --chown=scraper:scraper . .

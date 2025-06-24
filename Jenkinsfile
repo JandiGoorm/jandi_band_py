@@ -11,7 +11,9 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                git branch: 'master', 
+                    credentialsId: 'github-credentials',
+                    url: 'https://github.com/JandiGoorm/jandi_band_py.git'  // 실제 저장소 URL로 변경
             }
         }
         

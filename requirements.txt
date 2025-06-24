@@ -1,5 +1,4 @@
 fastapi
 uvicorn[standard]
+playwright
 pydantic
-httpx
-lxml
