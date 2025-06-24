@@ -21,11 +21,11 @@ class ContextInfo:
 @dataclass
 class ScraperConfig:
     initial_contexts: int = 2
-    max_contexts: int = 5
+    max_contexts: int = 10
     context_idle_timeout: int = 300
 
     headless: bool = True
-    timeout: int = 30000
+    timeout: int = 15000
 
     WEEKDAY_MAPPING: Dict[str, str] = None
 
@@ -101,6 +101,49 @@ class BrowserManager:
             self._is_started = False
             self.logger.info("Playwright 브라우저가 중지되었습니다")
 
+    async def _acquire_context(self) -> ContextInfo:
+        # 1. 즉시 사용 가능한 컨텍스트 확인
+        try:
+            return self._available_contexts.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+
+        # 2. 새 컨텍스트 생성 가능한지 확인
+        if len(self._context_infos) < self.config.max_contexts:
+            self.logger.info("컨텍스트 풀이 비어있음, 새 컨텍스트 즉시 생성")
+            context = await self._create_context()
+            context_info = ContextInfo(
+                context=context,
+                is_permanent=False,
+                last_used=time.time(),
+                created_at=time.time()
+            )
+            async with self._lock:
+                self._context_infos.append(context_info)
+            self.logger.info(f"새로운 임시 컨텍스트 생성됨. 풀 크기: {len(self._context_infos)}")
+            return context_info
+
+        # 3. 최대치 도달 시 대기
+        self.logger.warning("최대 컨텍스트 수에 도달, 대기 중...")
+        return await asyncio.wait_for(
+            self._available_contexts.get(),
+            timeout=2.0
+        )
+
+    async def _return_context(self, context_info: Optional[ContextInfo]):
+        if context_info and context_info in self._context_infos:
+            try:
+                await self._available_contexts.put(context_info)
+            except Exception as e:
+                self.logger.warning(f"컨텍스트 풀 반환 중 오류: {e}")
+
+    async def _close_page_safely(self, page: Optional[Page]):
+        if page:
+            try:
+                await page.close()
+            except Exception as e:
+                self.logger.warning(f"페이지 종료 중 오류: {e}")
+
     @asynccontextmanager
     async def get_page(self):
         if not self._is_started:
@@ -110,27 +153,7 @@ class BrowserManager:
         page = None
 
         try:
-            # 사용 가능한 컨텍스트 가져오기
-            try:
-                context_info = await asyncio.wait_for(
-                    self._available_contexts.get(),
-                    timeout=5.0
-                )
-            except asyncio.TimeoutError:
-                self.logger.warning("컨텍스트 획득 타임아웃, 새 컨텍스트 생성 시도")
-                if len(self._context_infos) < self.config.max_contexts:
-                    context = await self._create_context()
-                    context_info = ContextInfo(
-                        context=context,
-                        is_permanent=False,
-                        last_used=time.time(),
-                        created_at=time.time()
-                    )
-                    async with self._lock:
-                        self._context_infos.append(context_info)
-                    self.logger.info(f"새로운 임시 컨텍스트 생성됨. 풀 크기: {len(self._context_infos)}")
-                else:
-                    context_info = await self._available_contexts.get()
+            context_info = await self._acquire_context()
 
             if context_info is None or context_info.context is None:
                 raise RuntimeError("브라우저 컨텍스트를 가져올 수 없습니다")
@@ -145,17 +168,8 @@ class BrowserManager:
             self.logger.error(f"get_page 중 오류: {e}")
             raise
         finally:
-            if page:
-                try:
-                    await page.close()
-                except Exception as e:
-                    self.logger.warning(f"페이지 종료 중 오류: {e}")
-
-            if context_info and context_info in self._context_infos:
-                try:
-                    await self._available_contexts.put(context_info)
-                except Exception as e:
-                    self.logger.warning(f"컨텍스트 풀 반환 중 오류: {e}")
+            await self._close_page_safely(page)
+            await self._return_context(context_info)
 
     async def _create_context(self) -> BrowserContext:
         if not self._browser:
@@ -170,10 +184,19 @@ class BrowserManager:
             )
         )
 
-        # 리소스 차단 설정
         try:
-            blocked_patterns = "**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}"
-            await context.route(blocked_patterns, lambda route: route.abort())
+            # 파싱하는 데에 있어 불필요한 리소스는 차단
+            blocked_patterns = [
+                "**/*.{png,jpg,jpeg,gif,svg,ico,webp}",  # 이미지
+                "**/*.{woff,woff2,ttf,otf,eot}",  # 폰트
+                "**/analytics/**",  # 분석 도구
+                "**/ads/**",  # 광고
+                "**/tracking/**"  # 트래킹
+            ]
+
+            for pattern in blocked_patterns:
+                await context.route(pattern, lambda route: route.abort())
+
         except Exception as e:
             self.logger.warning(f"리소스 차단 설정 실패: {e}")
 
@@ -264,7 +287,6 @@ class BrowserManager:
 class TimetableLoader:
     """시간표 파싱 로직을 담당하는 클래스"""
 
-    # CSS 선택자 상수들
     TABLE_HEAD_CLASS = ".tablehead"
     TABLE_BODY_CLASS = ".tablebody"
     SUBJECT_CLASS = ".subject"
@@ -278,7 +300,13 @@ class TimetableLoader:
 
     async def load_timetable(self, url: str, page: Page) -> Dict[str, Any]:
         try:
-            await page.goto(url)
+            await page.goto(url, wait_until="domcontentloaded", timeout=self.config.timeout)
+            await page.wait_for_function(
+                f"document.querySelector('{self.TABLE_HEAD_CLASS} td') && "
+                f"document.querySelector('{self.TABLE_HEAD_CLASS} td').textContent.trim() !== '' && "
+                f"document.querySelector('{self.TABLE_BODY_CLASS}')",
+                timeout=10000
+            )
             weekdays = await self._load_weekdays(page)
             daily_schedules = await self._load_subject_data(page, weekdays)
 
@@ -316,10 +344,6 @@ class TimetableLoader:
 
     async def _load_weekdays(self, page: Page) -> List[str]:
         try:
-            await page.wait_for_selector(
-                self.TABLE_HEAD_CLASS,
-                timeout=self.time_calc.WAIT_TIMEOUT
-            )
             td_elements = page.locator(f"{self.TABLE_HEAD_CLASS} td")
             days = []
 
@@ -343,10 +367,6 @@ class TimetableLoader:
         self, page: Page, weekdays: List[str]
     ) -> Dict[str, List[Tuple[str, str]]]:
         try:
-            await page.wait_for_selector(
-                self.TABLE_BODY_CLASS,
-                timeout=self.time_calc.WAIT_TIMEOUT
-            )
             subjects = page.locator(f"{self.TABLE_BODY_CLASS} {self.SUBJECT_CLASS}")
 
             subject_count = await subjects.count()
@@ -400,14 +420,13 @@ class TimetableLoader:
             td_elements = tablehead.locator('td')
 
             subject_x = (
-                subject_rect['x'] +
-                subject_rect['width'] * self.SUBJECT_CENTER_RATIO
+                    subject_rect['x'] +
+                    subject_rect['width'] * self.SUBJECT_CENTER_RATIO
             )
 
             for i in range(await td_elements.count()):
                 td_rect = await td_elements.nth(i).bounding_box()
-                if (td_rect and
-                    td_rect['x'] <= subject_x <= td_rect['x'] + td_rect['width']):
+                if td_rect and td_rect['x'] <= subject_x <= td_rect['x'] + td_rect['width']:
                     return weekdays[i] if i < len(weekdays) else "알 수 없음"
 
             return "알 수 없음"
@@ -418,7 +437,6 @@ class TimetableLoader:
 
 
 class TimeCalculator:
-    WAIT_TIMEOUT = 10000
     TIME_UNIT_MINUTES = 30
     START_HOUR = 9
     BASE_TOP_OFFSET = 540
