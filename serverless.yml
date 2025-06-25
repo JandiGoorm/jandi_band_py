@@ -3,7 +3,7 @@ frameworkVersion: '3'
 
 provider:
   name: aws
-  runtime: python3.11
+  runtime: python3.12
   region: ap-northeast-2 # 원하시는 리전으로 변경 가능합니다.
   stage: dev
   # Lambda 함수 성능 및 보안 설정 추가
