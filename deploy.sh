@@ -36,9 +36,9 @@ if [[ "$VIRTUAL_ENV" == "" ]]; then
     echo "venv를 활성화하는 것을 권장합니다."
 fi
 
-# serverless-python-requirements 플러그인 설치
-echo "📦 Serverless 플러그인을 설치합니다."
-serverless plugin install -n serverless-python-requirements
+# Node.js 의존성 설치 (serverless-python-requirements)
+echo "📦 Node.js 의존성을 설치합니다."
+npm install
 
 # 배포 실행
 echo "🔧 Lambda 함수를 배포합니다."

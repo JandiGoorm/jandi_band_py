@@ -58,3 +58,9 @@ docker-compose.yml
 
 # EC2 server only files
 nginx-updated.conf
+
+# Node modules
+node_modules/
+
+# Serverless
+.serverless/
