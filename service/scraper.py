@@ -65,16 +65,10 @@ class TimetableLoader:
 
     @property
     def client(self) -> httpx.AsyncClient:
-        """지연 초기화된 HTTP 클라이언트 - Lambda 최적화"""
+        """지연 초기화된 HTTP 클라이언트"""
         if self._client is None or self._client.is_closed:
-            # Lambda에 최적화된 커넥션 설정
-            limits = httpx.Limits(
-                max_keepalive_connections=3,  # Lambda 환경에 맞게 더 보수적으로
-                max_connections=5,
-                keepalive_expiry=60.0  # Lambda 컨테이너 생명주기에 맞게 조정
-            )
-            self._client = httpx.AsyncClient(timeout=TIMEOUT, limits=limits)
-            logger.info("HTTP 클라이언트 생성 (Lambda 최적화)")
+            self._client = httpx.AsyncClient(timeout=TIMEOUT)
+            logger.info("HTTP 클라이언트 생성")
         return self._client
 
     async def close(self):
