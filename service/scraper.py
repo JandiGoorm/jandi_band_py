@@ -27,14 +27,6 @@ class TimetableLoader:
     TIMETABLE_ENDPOINT = "/find/timetable/table/friend"
 
     _full_time_slots = None
-    _instance = None
-    _client = None
-
-    def __new__(cls):
-        """싱글톤 패턴 구현 - Lambda 컨테이너 재사용 시 동일한 인스턴스 사용"""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     @classmethod
     def _initialize_full_time_slots(cls) -> set[str]:
@@ -57,30 +49,18 @@ class TimetableLoader:
         return cls._full_time_slots
 
     def __init__(self):
-        # 싱글톤이므로 중복 초기화 방지
-        if hasattr(self, '_initialized'):
-            return
-        self._initialized = True
-        logger.info("TimetableLoader 인스턴스 초기화")
-
-    @property
-    def client(self) -> httpx.AsyncClient:
-        """지연 초기화된 HTTP 클라이언트"""
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=TIMEOUT)
-            logger.info("HTTP 클라이언트 생성")
-        return self._client
+        self.client = httpx.AsyncClient(timeout=TIMEOUT)
 
     async def close(self):
-        """리소스 정리 - 로컬 환경에서만 필요"""
-        if self._client and not self._client.is_closed:
+        """리소스 정리를 위한 메서드"""
+        if self.client and not self.client.is_closed:
             try:
-                await self._client.aclose()
+                await self.client.aclose()
                 logger.info("HTTP 클라이언트 정리 완료")
             except Exception as e:
                 logger.error(f"HTTP 클라이언트 정리 중 오류: {e}")
             finally:
-                self._client = None
+                self.client = None
 
     async def load_timetable(self, url: str) -> Dict[str, Any]:
         """(메인) 시간표 불러오기 함수"""
