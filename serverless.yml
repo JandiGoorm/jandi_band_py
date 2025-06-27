@@ -1,14 +1,13 @@
 service: jandi-band-py-scraper
-frameworkVersion: '3'
+frameworkVersion: '4'
 
 provider:
   name: aws
   runtime: python3.12
-  region: ap-northeast-2 # 원하시는 리전으로 변경 가능합니다.
+  region: ap-northeast-2
   stage: dev
-  # Lambda 함수 성능 및 보안 설정 추가
-  timeout: 30  # 스크래핑 작업을 위한 충분한 타임아웃
-  memorySize: 512  # lxml과 HTTP 요청을 위한 메모리
+  timeout: 10
+  memorySize: 512
   environment:
     LOG_LEVEL: INFO
 
@@ -17,13 +16,13 @@ plugins:
 
 custom:
   pythonRequirements:
-    dockerizePip: true # lxml과 같은 C-extension 종속성을 위해 필요합니다.
+    dockerizePip: true # lxml과 같은 C-extension 종속성을 위해 필요
     strip: false  # 디버깅을 위해 심볼 정보 유지
-    slim: true    # 패키지 크기 최적화
+    slim: true
 
 functions:
   api:
-    handler: app.handler # app.py 파일의 handler 객체를 지정합니다.
+    handler: app.handler # app.py 파일의 handler 객체를 지정
     events:
       - httpApi:
           path: /{proxy+}
