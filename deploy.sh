@@ -51,7 +51,7 @@ serverless info --stage $STAGE
 
 # Health check 테스트
 echo "🏥 Health check를 수행합니다."
-ENDPOINT=$(serverless info --stage $STAGE --verbose | grep -oE 'https://[^/]+\.execute-api\.[^/]+\.amazonaws\.com/[^/]+' | head -1)
+ENDPOINT=$(serverless info --stage $STAGE --verbose 2>&1 | grep "HttpApiUrl:" | awk '{print $2}')
 
 if [ ! -z "$ENDPOINT" ]; then
     echo "🌐 엔드포인트: $ENDPOINT"
