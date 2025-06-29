@@ -3,34 +3,17 @@
 에브리타임 시간표 URL을 받아서 시간표 데이터를 불러오는 REST API 서버입니다.
 Docker 컨테이너와 Jenkins CI/CD를 통해 자동 배포됩니다.
 
-## 주요 기능
+## 주요 기능 및 특징
 
-- 학교 시간표 불러오기
+- 에브리타임 시간표 공유 URL을 통한 시간표 데이터 불러오기
+- 비동기 처리를 통한 빠른 응답 속도 (~0.1초)
 
 ## 기술 스택
 
-- **Backend**: Python, FastAPI, Uvicorn
-- **HTTP Client**: httpx (비동기 HTTP 클라이언트)
-- **XML Parsing**: lxml (고성능 XML 파서)
-- **Containerization**: Docker
-- **CI/CD**: Jenkins
-- **Reverse Proxy**: Nginx
-
-## 프로젝트 구조
-
-```
-jandi_band_py/
-├── app.py                      # FastAPI 애플리케이션 메인 파일
-├── requirements.txt            # Python 의존성
-├── Dockerfile                  # Docker 이미지 빌드 설정
-├── Jenkinsfile                 # CI/CD 파이프라인 설정
-├── service/                    # 비즈니스 로직
-│   ├── __init__.py
-│   └── scraper.py              # 시간표 스크래핑 로직 (API 직접 호출)
-├── ARCHITECTURE.md             # 아키텍처 문서
-├── DEPLOYMENT.md               # 배포 가이드
-└── README.md                   # 프로젝트 문서
-```
+- Python 3.12
+- FastAPI
+- Docker
+- Jenkins
 
 ## API 명세서
 
@@ -40,7 +23,9 @@ Production: https://rhythmeet-be.yeonjae.kr/scraper
 Development: http://localhost:5001
 ```
 
-### GET /health
+### Endpoints
+
+#### GET /health
 서비스 상태를 확인하는 헬스체크 엔드포인트입니다.
 
 **Response:**
@@ -51,27 +36,19 @@ Development: http://localhost:5001
 }
 ```
 
-### GET /timetable
-에브리타임 시간표 데이터를 스크래핑합니다.
+#### GET /timetable
+에브리타임 시간표 데이터를 조회합니다.
 
-#### Request
-**Query Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `url` | string | Yes | 에브리타임 시간표 공유 URL |
+**Request:**
+- **Query Parameters:**
+  - `url` (string, required): 에브리타임 시간표 공유 URL
+  - 예시: `https://everytime.kr/@username`
 
-**URL 검증 규칙:**
-- URL은 반드시 `https://everytime.kr/`로 시작해야 함
-- 다른 도메인의 URL은 "지정되지 않은 URL" 에러 반환
+**URL 검증:**
+- URL은 반드시 `everytime.kr` 도메인이어야 함
+- 다른 도메인의 URL은 400 에러 반환
 
-**Example Request:**
-```bash
-curl "https://rhythmeet-be.yeonjae.kr/scraper/timetable?url=https://everytime.kr/@user123"
-```
-
-#### Response
-
-**Success Response (200)**
+**Success Response (200):**
 ```json
 {
   "success": true,
@@ -91,113 +68,122 @@ curl "https://rhythmeet-be.yeonjae.kr/scraper/timetable?url=https://everytime.kr
 ```
 
 **응답 데이터 설명:**
-- `timetableData`: 각 요일별 사용 가능한 시간 목록 (30분 단위)
-- 시간 범위: 07:00 ~ 23:30 (30분 간격)
-- 빈 배열 `[]`: 해당 요일에 사용 가능한 시간이 없음 (모든 시간이 사용 가능)
+- `timetableData`: 각 요일별 **사용 가능한** 시간 목록 (강의 시간의 여집합)
+- 시간 범위: 07:00 ~ 23:30 (30분 단위)
 - 시간 형식: "HH:MM" (24시간 형식)
 
-**Error Responses**
+**Error Responses:**
 
-**400 Bad Request - 잘못된 URL**
-```json
-{
-  "success": false,
-  "message": "지정되지 않은 URL입니다."
-}
-```
+| Status Code | Description | Response |
+|-------------|-------------|----------|
+| 400 | 잘못된 URL | `{"success": false, "message": "지정되지 않은 URL입니다."}` |
+| 400 | 유효하지 않은 URL | `{"success": false, "message": "유효하지 않은 URL입니다. identifier를 찾을 수 없습니다."}` |
+| 400 | 비공개 시간표 | `{"success": false, "message": "공개되지 않은 시간표입니다."}` |
+| 500 | 서버 오류 | `{"success": false, "message": "서버 오류: {오류내용}"}` |
 
-**400 Bad Request - 비공개 시간표**
-```json
-{
-  "success": false,
-  "message": "공개되지 않은 시간표입니다."
-}
-```
-
-**500 Internal Server Error**
-```json
-{
-  "success": false,
-  "message": "서버 오류: {오류내용}"
-}
-```
-
-## CORS 정책
+### CORS 정책
 다음 도메인에서의 요청을 허용합니다:
 - `http://localhost:5173` (개발환경)
 - `https://rhythmeet-be.yeonjae.kr`
 - `https://*.yeonjae.kr`
 - `https://rhythmeet.netlify.app`
 
+## 로컬 개발 환경 설정
+
+### 요구사항
+- Python 3.12 이상
+- Docker
+
+### 설치 및 실행
+
+1. **저장소 클론**
+   ```bash
+   git clone https://github.com/JandiGoorm/jandi_band_py.git
+   cd jandi_band_py
+   ```
+
+2. **가상환경 설정 (권장)**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Windows: venv\Scripts\activate
+   ```
+
+3. **의존성 설치**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **서버 실행**
+   ```bash
+   python app.py
+   ```
+
+### Docker로 실행
+
+```bash
+# 이미지 빌드
+docker build -t fastapi-scraper:latest .
+
+# 컨테이너 실행
+docker run -d \
+  --name fastapi-scraper-app \
+  -p 5001:5001 \
+  -e PYTHONUNBUFFERED=1 \
+  fastapi-scraper:latest
+```
+
 ## 사용 예시
 
-### 헬스체크
+### cURL 예시
 ```bash
+# 헬스체크
 curl https://rhythmeet-be.yeonjae.kr/scraper/health
+
+# 시간표 불러오기
+curl "https://rhythmeet-be.yeonjae.kr/scraper/timetable?url=https://everytime.kr/@username"
 ```
 
-### 시간표 데이터 가져오기
-```bash
-# 성공 예시
-curl "https://rhythmeet-be.yeonjae.kr/scraper/timetable?url=https://everytime.kr/@user123"
-
-# 실패 예시 (테스트용)
-curl "https://rhythmeet-be.yeonjae.kr/scraper/timetable?url=test"
-```
-
-### JavaScript에서 사용
+### JavaScript 예시
 ```javascript
-// 헬스체크
-const healthCheck = async () => {
-  const response = await fetch('https://rhythmeet-be.yeonjae.kr/scraper/health');
-  const data = await response.json();
-  console.log(data);
-};
-
 // 시간표 데이터 가져오기
-const getTimetable = async (url) => {
+async function getTimetable(everyTimeUrl) {
   try {
-    const response = await fetch(`https://rhythmeet-be.yeonjae.kr/scraper/timetable?url=${encodeURIComponent(url)}`);
+    const response = await fetch(
+      `https://rhythmeet-be.yeonjae.kr/scraper/timetable?url=${encodeURIComponent(everyTimeUrl)}`
+    );
     const data = await response.json();
 
     if (data.success) {
-      console.log('시간표 데이터:', data.data.timetableData);
+      console.log('사용 불가능한 시간:', data.data.timetableData);
+      return data.data.timetableData;
     } else {
       console.error('에러:', data.message);
+      throw new Error(data.message);
     }
   } catch (error) {
     console.error('네트워크 에러:', error);
+    throw error;
   }
-};
+}
+
+// 사용 예시
+getTimetable('https://everytime.kr/@username')
+  .then(timetable => {
+    console.log('월요일 사용 불가능한 시간:', timetable.Mon);
+  });
 ```
 
-## 리팩토링 및 개선사항
+## 성능 및 최적화
 
-### 🔧 주요 변경사항
+### 현재 성능 지표
+- **응답 시간**: ~100ms (네트워크 지연 포함)
+- **메모리 사용량**: ~50MB
 
-- **HTTP 클라이언트**: `httpx`로 `https://api.everytime.kr` 직접 호출
-- **XML 파싱**: `lxml`을 사용한 고성능 파싱
-- **아키텍처**: 복잡한 브라우저 관리 시스템 → 단순한 HTTP 클라이언트
-- **리소스 관리**: 연결 풀링 및 비동기 처리로 효율성 극대화
-
-### 🎯 주요 개선 효과
-
-**이전 방식 (Playwright):**
-- 브라우저 자동화를 통한 DOM 조작
-- 높은 메모리 사용량 (~800MB)
-- 긴 응답 시간 (3-5초)
-- 복잡한 브라우저 관리 시스템
-
-**현재 방식 (API 직접 호출):**
-- 에브리타임 API 직접 호출 (`https://api.everytime.kr`)
-- 낮은 메모리 사용량 (~100MB)
-- 빠른 응답 시간 (~0.1초)
-- 단순한 HTTP 클라이언트 시스템
-- XML 파싱 최적화 (lxml 사용)
-
-## 배포 및 운영
-
-서버 설정, 빌드, 배포에 관한 상세한 내용은 [DEPLOYMENT.md](DEPLOYMENT.md)를 참조하세요.
+### 최적화 기법
+1. **비동기 처리**: httpx AsyncClient 사용
+2. **연결 재사용**: HTTP 연결 풀링
+3. **효율적인 XML 파싱**: lxml 라이브러리
+4. **리소스 관리**: lifespan을 통한 적절한 정리
 
 ## 주의사항: 개인정보 보호
 
@@ -208,8 +194,3 @@ const getTimetable = async (url) => {
 **법적 고지:**
 - 본 서비스는 개인정보 자기결정권을 존중하며, 사용자 본인의 정보 활용을 전제로 합니다.
 - 다른 사람의 시간표 정보를 무단으로 활용하는 것은 법적인 문제가 될 수 있습니다.
-
-## 문의
-
-- 개발자: [JandiGoorm](https://github.com/JandiGoorm)
-- 이슈 리포트: [GitHub Issues](https://github.com/JandiGoorm/jandi_band_py/issues)
