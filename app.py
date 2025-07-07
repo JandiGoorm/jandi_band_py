@@ -8,6 +8,11 @@ from pydantic import BaseModel, HttpUrl
 from service.scraper import TimetableLoader
 from pydantic import ValidationError
 
+# =====================================================
+# 디버깅을 위한 표식 로그 (새로 추가)
+logging.info("<<<<< APPLICATION VERSION 2025.07.09-FINAL-TEST RUNNING >>>>>")
+# =====================================================
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
