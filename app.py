@@ -34,13 +34,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,  # type: ignore
-    allow_origins=[
-        "http://localhost:5173",
-        "https://rhythmeet-be.yeonjae.kr",
-        "https://*.yeonjae.kr",
-        "https://rhythmeet.netlify.app",
-        "https://rhythmeet.site"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
