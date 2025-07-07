@@ -41,7 +41,8 @@ app.add_middleware(
         "http://localhost:5173",
         "https://rhythmeet-be.yeonjae.kr",
         "https://*.yeonjae.kr",
-        "https://rhythmeet.netlify.app"
+        "https://rhythmeet.netlify.app",
+        "https://rhythmeet.site"
     ],
     allow_credentials=True,
     allow_methods=["*"],
