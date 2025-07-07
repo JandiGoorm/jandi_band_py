@@ -1,17 +1,14 @@
 import logging
 import uvicorn
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, HttpUrl
-
 from service.scraper import TimetableLoader
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,7 +29,6 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"리소스 정리 오류: {e}")
 
-
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
@@ -49,16 +45,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 class HealthCheckResponse(BaseModel):
     status: str
     service: str
 
-
 @app.get("/health", response_model=HealthCheckResponse)
 def health_check():
     return {"status": "healthy", "service": "fastapi-scraper"}
-
 
 @app.get("/timetable")
 async def get_timetable(request: Request, url: HttpUrl):
@@ -81,7 +74,6 @@ async def get_timetable(request: Request, url: HttpUrl):
     except Exception as e:
         logger.error(f"시간표 요청 중 오류: {e}")
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
-
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5001, log_level="info")
