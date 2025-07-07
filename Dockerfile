@@ -1,50 +1,52 @@
-FROM python:3.12-slim
+# 1. Builder Stage: 의존성 설치
+FROM python:3.12-slim as builder
 
-# 환경 변수 설정
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# 레이블 추가 (컨테이너 관리용)
-LABEL maintainer="jandi-band"
-LABEL service="fastapi-scraper"
+# 빌드에 필요한 도구 설치
+RUN apt-get update && apt-get install -y --no-install-recommends gcc && rm -rf /var/lib/apt/lists/*
 
-# 시스템 패키지 설치
-RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    ca-certificates \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# 사용자 생성
-RUN useradd -m -u 1000 scraper && \
-    mkdir -p /app /app/logs && \
-    chown -R scraper:scraper /app
-
-# 작업 디렉토리 설정
 WORKDIR /app
 
-# 필요한 패키지 설치 (캐시 효율성을 위해 먼저 복사)
+# 가상 환경 생성 및 활성화
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# 패키지 설치
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# 사용자로 전환
-USER scraper
+# -----------------------------------------------------
 
-# 소스 코드 복사
+# 2. Final Stage: 실제 실행될 이미지
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# 사용자 생성 및 권한 설정
+RUN useradd -m -u 1000 scraper && \
+    mkdir -p /app /app/logs && \
+    chown -R scraper:scraper /app
+
+WORKDIR /app
+
+# Builder 스테이지에서 가상 환경과 설치된 패키지만 복사
+COPY --from=builder /opt/venv /opt/venv
+# Builder 스테이지에서 애플리케이션 코드 복사
 COPY --chown=scraper:scraper . .
 
-# 포트 노출
+# PATH 환경 변수 설정
+ENV PATH="/opt/venv/bin:$PATH"
+
+USER scraper
+
 EXPOSE 5001
 
-# 헬스체크 추가 (호스트에서 접근 가능하도록)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:5001/health || exit 1
-
-# 시작 스크립트 생성 (로깅 개선)
-RUN echo '#!/bin/bash\necho "Starting FastAPI Scraper..."\necho "Port: 5001"\npython app.py' > start.sh && \
-    chmod +x start.sh
+  CMD curl -f http://localhost:5001/health || exit 1
 
 # 애플리케이션 실행
-CMD ["./start.sh"]
+CMD ["python", "app.py"]
