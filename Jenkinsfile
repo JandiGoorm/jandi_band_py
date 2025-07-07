@@ -75,7 +75,7 @@ pipeline {
             echo 'FastAPI Scraper Pipeline failed!'
             script {
                 // 실패 시 EC2 서버의 로그와 컨테이너 상태 확인
-                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'EC2_PRIVATE_KEY')]) {
+                 withCredentials([sshUserPrivateKey(credentialsId: 'rhythmeet-ec2-ssh-key', keyFileVariable: 'EC2_PRIVATE_KEY')]) {
                     sh """
                         ssh -o StrictHostKeyChecking=no -i \${EC2_PRIVATE_KEY} ${env.EC2_USER}@${env.EC2_HOST} \
                         "echo 'Container logs:'; docker logs ${CONTAINER_NAME} --tail 50 || true; echo 'Container status:'; docker ps -a | grep ${CONTAINER_NAME} || true"
