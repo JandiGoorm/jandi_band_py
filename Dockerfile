@@ -23,6 +23,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # 2. Final Stage: 실제 실행될 이미지
 FROM python:3.12-slim
 
+RUN apt-get update && apt-get install -y curl --no-install-recommends && rm -rf /var/lib/apt/lists/*
+
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
