@@ -3,7 +3,7 @@ pipeline {
     
     environment {
         GHCR_OWNER = 'kyj0503'
-        EC2_HOST = 'rhythmeet-be.yeonjae.kr'
+        EC2_HOST = 'rhythmeet.yeonjae.kr'
         EC2_USER = 'ubuntu'
         IMAGE_NAME = 'fastapi-scraper'
         CONTAINER_NAME = 'fastapi-scraper-app'
