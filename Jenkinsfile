@@ -72,7 +72,7 @@ pipeline {
                         echo "Waiting for service to be ready..."
                         for i in 1 2 3 4 5 6; do
                             echo "Health check attempt $i/6"
-                            if curl -sf https://band-py.yeonjae.kr/health; then
+                            if curl -sf https://rhythmeet-py.yeonjae.kr/health; then
                                 echo "✅ Service is healthy!"
                                 exit 0
                             fi
