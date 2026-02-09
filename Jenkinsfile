@@ -54,7 +54,7 @@ pipeline {
             steps {
                 script {
                     sh '''
-                        cd /home/ubuntu/source/home-server/docker
+                        cd /opt/home-server/docker
                         docker compose -f docker-compose.apps.yml pull jandi-band-py
                         docker compose -f docker-compose.apps.yml up -d --force-recreate jandi-band-py
                         sleep 5
