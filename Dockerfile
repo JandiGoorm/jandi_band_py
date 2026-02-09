@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # 1. Builder Stage: 의존성 설치
 FROM python:3.12-slim AS builder
 
@@ -13,10 +14,11 @@ WORKDIR /app
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# 패키지 설치
+# 패키지 설치 (pip 캐시 마운트로 재다운로드 방지)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip install -r requirements.txt
 
 # -----------------------------------------------------
 

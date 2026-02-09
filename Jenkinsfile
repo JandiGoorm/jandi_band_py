@@ -4,6 +4,7 @@ pipeline {
     environment {
         GHCR_OWNER = 'kyj0503'
         IMAGE_NAME = 'jandi-band-py'
+        DOCKER_BUILDKIT = '1'
     }
     
     stages {
@@ -55,7 +56,7 @@ pipeline {
                     sh '''
                         cd /opt/home-server/docker
                         docker compose -f docker-compose.apps.yml pull jandi-band-py
-                        docker compose -f docker-compose.apps.yml up -d --force-recreate jandi-band-py
+                        docker compose -f docker-compose.apps.yml up -d --no-deps --force-recreate jandi-band-py
                         sleep 5
                         docker ps | grep jandi-band-py
                         echo "✅ jandi-band-py deployment completed!"
