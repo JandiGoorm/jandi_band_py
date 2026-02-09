@@ -4,7 +4,6 @@ pipeline {
     environment {
         GHCR_OWNER = 'kyj0503'
         IMAGE_NAME = 'jandi-band-py'
-        DOCKER_BUILDKIT = '1'
     }
     
     stages {
