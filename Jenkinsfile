@@ -70,9 +70,9 @@ pipeline {
                 script {
                     sh '''
                         echo "Waiting for service to be ready..."
-                        for i in {1..4}; do
-                            echo "Health check attempt $i/4"
-                            if curl -f https://band-py.yeonjae.kr/health; then
+                        for i in 1 2 3 4 5 6; do
+                            echo "Health check attempt $i/6"
+                            if curl -sf https://band-py.yeonjae.kr/health; then
                                 echo "✅ Service is healthy!"
                                 exit 0
                             fi
