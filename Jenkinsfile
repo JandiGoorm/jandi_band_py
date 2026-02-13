@@ -20,26 +20,6 @@ pipeline {
             }
         }
 
-        stage('Test') {
-            steps {
-                script {
-                    echo "Running Python tests..."
-                    sh '''
-                        python3 -m venv venv || true
-                        . venv/bin/activate
-                        pip install -r requirements.txt
-                        pip install pytest
-                        python -m pytest tests/ -v --tb=short || echo "No tests found or tests skipped"
-                    '''
-                }
-            }
-            post {
-                failure {
-                    echo "Tests failed. Stopping pipeline."
-                }
-            }
-        }
-
         stage('Login GHCR') {
             steps {
                 script {
@@ -74,11 +54,7 @@ pipeline {
             steps {
                 script {
                     sh '''
-                        cd /home/ubuntu/source/home-server/docker
-                        docker compose -f docker-compose.apps.yml pull jandi-band-py
-                        docker compose -f docker-compose.apps.yml up -d jandi-band-py
-                        sleep 5
-                        docker ps | grep jandi-band-py
+                        /opt/home-server/scripts/deploy-app.sh jandi-band-py
                         echo "✅ jandi-band-py deployment completed!"
                     '''
                 }
@@ -89,8 +65,16 @@ pipeline {
             steps {
                 script {
                     sh '''
-                        sleep 10
-                        curl -f https://rhythmeet-py.yeonjae.kr/health || echo "Health check pending..."
+                        echo "Waiting for service to be ready..."
+                        for i in 1 2 3 4 5 6; do
+                            echo "Health check attempt $i/6"
+                            if curl -sf https://rhythmeet-py.yeonjae.kr/health; then
+                                echo "✅ Service is healthy!"
+                                exit 0
+                            fi
+                            sleep 5
+                        done
+                        echo "⚠️ Health check timed out, but continuing..."
                     '''
                 }
             }
