@@ -17,7 +17,7 @@ jandi_band_backend를 위한 서브 서버로, 에브리타임 시간표 URL을 
 | **Language** | Python 3.12 |
 | **Framework** | FastAPI, Uvicorn |
 | **Libraries** | httpx, lxml, pydantic |
-| **Infra** | Docker, Jenkins |
+| **Infra** | Docker, Jenkins (`home-server`에서 중앙 관리) |
 
 ---
 
@@ -31,7 +31,6 @@ jandi_band_py/
 │   └── scraper.py          # 시간표 스크래핑 로직
 ├── requirements.txt        # Python 의존성
 ├── Dockerfile              # Docker 이미지 빌드
-├── Jenkinsfile             # CI/CD 파이프라인
 └── README.md
 ```
 
@@ -125,12 +124,13 @@ docker build --platform linux/amd64 -t ghcr.io/kyj0503/jandi-band-py:latest .
 docker push ghcr.io/kyj0503/jandi-band-py:latest
 ```
 
-### 자동 Push (Jenkins)
+### 중앙 CI/CD (Jenkins)
 
-`main` 또는 `master` 브랜치에 Push하면 Jenkins가 자동으로:
-1. Docker 이미지 빌드 (캐시 활용)
-2. GHCR에 Push (`latest` + 빌드 번호 태그)
-3. home-server 배포 트리거
+파이프라인 정의는 `home-server/cicd/jenkins/pipeline/jandi-band-py/`에서 관리합니다.
+Jenkins의 `jandi-band-py` Job을 수동 실행하고 `APP_ENV`를 선택합니다.
+
+- `dev`: `dev` 브랜치를 빌드해 `:dev` 이미지로 Push
+- `prod`: `main` 브랜치를 빌드해 `:latest` 이미지로 Push한 뒤 배포 및 헬스 체크
 
 ---
 
@@ -203,6 +203,5 @@ chore(infra): Dockerfile 최적화
 
 ## 운영 환경
 
-- Jenkins 파이프라인을 통해 Docker 이미지 빌드 후 GHCR에 Push
-- 운영 환경 배포는 **home-server** 리포지토리에서 중앙 관리
+- Jenkins 파이프라인 정의와 운영 환경 배포는 **home-server** 리포지토리에서 중앙 관리
 - jandi-band-backend와 함께 실행되어야 함
