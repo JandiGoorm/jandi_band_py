@@ -16,11 +16,31 @@ PR에서는 Docker 테스트와 실행 이미지 빌드만 수행한다. main/de
 | 종류 | 이름 | 내용 |
 |---|---|---|
 | Secret | OCI_SSH_KEY | 해당 환경 배포용 SSH 개인키 |
-| Variable | OCI_HOST | OCI SSH 호스트 |
+| Variable | OCI_HOST | OCI의 Tailscale IPv4 주소 |
 | Variable | OCI_USER | SSH 사용자 |
 | Variable | OCI_KNOWN_HOSTS | 별도 경로로 검증한 SSH 호스트 공개키 항목 |
+| Variable | TS_CLIENT_ID | 해당 저장소·환경의 Tailscale OIDC Client ID |
+| Variable | TS_AUDIENCE | Tailscale OIDC의 Audience |
 
 GHCR은 작업마다 발급되는 `GITHUB_TOKEN`을 사용한다. 이미지는 `ghcr.io/jandigoorm/jandi-band-py`에 저장하며, 배포 작업은 `packages: read` 권한을 사용한다. 서버로 전달한 임시 레지스트리 인증 파일은 작업 종료 시 삭제한다. 기존 패키지를 재사용할 때는 해당 저장소에 패키지 접근 권한을 부여해야 한다.
+
+## Tailscale 연결
+
+배포 작업만 GitHub OIDC로 Tailscale에 임시 장치를 등록한다. `TS_CLIENT_ID`와 `TS_AUDIENCE`는 비밀값이 아닌 식별자다. Tailscale OAuth Secret이나 재사용 Auth Key는 저장하지 않는다. PR 검증과 이미지 게시 작업에는 `id-token: write` 권한이 없다.
+
+서버에는 `tag:github-oci`, 임시 실행기에는 `tag:jandi-ci`를 지정한다. 접근 정책은 `tag:jandi-ci`에서 `tag:github-oci`의 `tcp:22`만 허용한다. 기본 전체 허용 규칙과 함께 사용하면 이 제한이 적용되지 않으므로 전체 허용 규칙을 제거한다. 기존 OpenSSH와 환경별 `OCI_SSH_KEY`를 사용하며, Tailscale SSH는 켜지 않는다.
+
+운영·개발 OIDC 신뢰 설정은 각각 만든다. Issuer는 `https://token.actions.githubusercontent.com`, Scope는 `auth_keys`, Tag는 `tag:jandi-ci`다. Subject와 Custom claims는 다음 값에 정확히 일치해야 한다.
+
+| 항목 | production | development |
+|---|---|---|
+| Subject | `repo:JandiGoorm/jandi_band_py:environment:production` | `repo:JandiGoorm/jandi_band_py:environment:development` |
+| ref | `refs/heads/main` | `refs/heads/dev` |
+| workflow_ref | `JandiGoorm/jandi_band_py/.github/workflows/cicd.yml@refs/heads/main` | `JandiGoorm/jandi_band_py/.github/workflows/cicd.yml@refs/heads/dev` |
+| repository_id | `991963880` | `991963880` |
+| repository_owner_id | `191837133` | `191837133` |
+
+`OCI_KNOWN_HOSTS`의 주소도 Tailscale 주소와 일치시킨다. 호스트 공개키는 기존 관리용 SSH 경로에서 확인한 것을 사용한다. OCI 공인 IP의 화이트리스트는 유지한다. 서버와 실행기는 DNS 설정 및 다른 장치의 서브넷 경로를 받지 않는다. 실행기는 서버 연결을 확인한 뒤 배포하며, 종료 시 Tailscale 임시 장치를 제거한다.
 
 ## 서버 파일
 
