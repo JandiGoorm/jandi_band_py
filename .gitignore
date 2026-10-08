@@ -53,8 +53,13 @@ yarn-debug.log*
 yarn-error.log*
 
 # Docker
-.dockerignore
 docker-compose.yml
+
+.env
+.env.*
+!.env.example
+*.pem
+*.key
 
 # EC2 server only files
 nginx-updated.conf

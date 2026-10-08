@@ -1,0 +1,14 @@
+.git
+.github
+.env
+.env.*
+*.pem
+*.key
+**/__pycache__
+**/*.pyc
+.venv
+venv
+myenv
+logs
+docs
+scripts
