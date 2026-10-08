@@ -17,7 +17,7 @@ jandi_band_backend를 위한 서브 서버로, 에브리타임 시간표 URL을 
 | **Language** | Python 3.12 |
 | **Framework** | FastAPI, Uvicorn |
 | **Libraries** | httpx, lxml, pydantic |
-| **Infra** | Docker, Jenkins (`home-server`에서 중앙 관리) |
+| **Infra** | Docker, GitHub Actions |
 
 ---
 
@@ -76,61 +76,20 @@ curl "http://localhost:5001/timetable?url=https://everytime.kr/timetable/share/x
 
 ---
 
-## Docker 환경에서 실행
+## Docker 빌드와 테스트
 
 ```bash
-# 1. 이미지 빌드
-docker build -t jandi-band-py:local .
-
-# 2. 컨테이너 실행
-docker run -d \
-  --name jandi-band-py \
-  -p 5001:5001 \
-  jandi-band-py:local
-
-# 3. 로그 확인
-docker logs -f jandi-band-py
-
-# 4. 컨테이너 중지 및 삭제
-docker stop jandi-band-py && docker rm jandi-band-py
+docker build --target test -t jandi-band-py:test .
+docker build --target runtime -t jandi-band-py:local .
 ```
 
----
+테스트는 이미지의 `test` 단계에서 실행한다. 실제 비밀값은 빌드에 전달하지 않는다.
 
-## Docker 환경에서 테스트
+## CI/CD와 운영 설정
 
-```bash
-# 헬스체크 테스트
-docker exec jandi-band-py curl http://localhost:5001/health
-
-# 또는 호스트에서
-curl http://localhost:5001/health
-```
-
----
-
-## GHCR에 이미지 Push
-
-### 수동 Push
-
-```bash
-# 1. GHCR 로그인
-echo $GITHUB_TOKEN | docker login ghcr.io -u kyj0503 --password-stdin
-
-# 2. 이미지 빌드
-docker build --platform linux/amd64 -t ghcr.io/kyj0503/jandi-band-py:latest .
-
-# 3. Push
-docker push ghcr.io/kyj0503/jandi-band-py:latest
-```
-
-### 중앙 CI/CD (Jenkins)
-
-파이프라인 정의는 `home-server/cicd/jenkins/pipeline/jandi-band-py/`에서 관리합니다.
-Jenkins의 `jandi-band-py` Job을 수동 실행하고 `APP_ENV`를 선택합니다.
-
-- `dev`: `dev` 브랜치를 빌드해 `:dev` 이미지로 Push
-- `prod`: `main` 브랜치를 빌드해 `:latest` 이미지로 Push한 뒤 배포 및 헬스 체크
+이 저장소의 GitHub Actions가 `main`과 `dev`를 각각 운영·개발 환경에 배포한다.
+Compose와 공개 설정은 이 저장소에서 관리하고, 실제 `.env`는 서버에서 수동 관리한다.
+환경별 주소, GitHub Secrets/Variables, 서버 경로와 복구 절차는 [배포 문서](docs/deployment.md)를 참고한다.
 
 ---
 
@@ -200,8 +159,3 @@ chore(infra): Dockerfile 최적화
 ```
 
 ---
-
-## 운영 환경
-
-- Jenkins 파이프라인 정의와 운영 환경 배포는 **home-server** 리포지토리에서 중앙 관리
-- jandi-band-backend와 함께 실행되어야 함

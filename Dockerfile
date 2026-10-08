@@ -20,10 +20,16 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
     pip install -r requirements.txt
 
+FROM builder AS test
+COPY app.py .
+COPY service service
+COPY tests tests
+RUN python -m unittest discover -s tests -v
+
 # -----------------------------------------------------
 
 # 2. Final Stage: 실제 실행될 이미지
-FROM python:3.12-slim
+FROM python:3.12-slim AS runtime
 
 RUN apt-get update && apt-get install -y curl --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
@@ -40,7 +46,8 @@ WORKDIR /app
 # Builder 스테이지에서 가상 환경과 설치된 패키지만 복사
 COPY --from=builder /opt/venv /opt/venv
 # Builder 스테이지에서 애플리케이션 코드 복사
-COPY --chown=scraper:scraper . .
+COPY --chown=scraper:scraper app.py .
+COPY --chown=scraper:scraper service service
 
 # PATH 환경 변수 설정
 ENV PATH="/opt/venv/bin:$PATH"
