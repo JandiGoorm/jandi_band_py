@@ -15,10 +15,10 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # 패키지 설치 (pip 캐시 마운트로 재다운로드 방지)
-COPY requirements.txt .
+COPY requirements.lock.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install -r requirements.lock.txt
 
 FROM builder AS test
 COPY app.py .
