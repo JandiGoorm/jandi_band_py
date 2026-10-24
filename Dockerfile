@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # 1. Builder Stage: 의존성 설치
-FROM python:3.12-slim AS builder
+FROM python:3.15-slim-trixie AS builder
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -28,8 +28,13 @@ RUN python -m unittest discover -s tests -v
 
 # -----------------------------------------------------
 
+FROM python:3.15-slim-trixie AS audit
+WORKDIR /app
+COPY requirements.lock.txt .
+RUN pip install --no-cache-dir pip-audit && pip-audit -r requirements.lock.txt
+
 # 2. Final Stage: 실제 실행될 이미지
-FROM python:3.12-slim AS runtime
+FROM python:3.15-slim-trixie AS runtime
 
 RUN apt-get update && apt-get install -y curl --no-install-recommends && rm -rf /var/lib/apt/lists/*
 

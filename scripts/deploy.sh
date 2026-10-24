@@ -8,7 +8,7 @@ image=${3:?}
 revision=${4:?}
 registry_user=${5:?}
 case "$app" in jandi-band|jandi-band-py) ;; *) exit 2 ;; esac
-case "$environment" in production|development) ;; *) exit 2 ;; esac
+[[ "$environment" == production ]] || exit 2
 [[ "$image" =~ ^ghcr\.io/jandigoorm/$app@sha256:[a-f0-9]{64}$ ]] || exit 2
 [[ "$revision" =~ ^[a-f0-9]{40}$ ]] || exit 2
 
@@ -17,10 +17,6 @@ release=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 [[ "$release" == "$root"/releases/release.* ]] || exit 2
 container="$app"
 profile=prod
-if [[ "$environment" == development ]]; then
-    container="$app-dev"
-    profile=dev
-fi
 project="$app-$environment"
 exec 9>"$root/deploy.lock"
 flock -w 300 9
@@ -75,7 +71,7 @@ export DOCKER_CONFIG="$release/.docker"
 docker login ghcr.io -u "$registry_user" --password-stdin < "$release/.registry-token"
 rm -f "$release/.registry-token"
 docker pull "$image"
-test "$(docker image inspect "$image" --format '{{.Architecture}}')" = arm64
+test "$(docker image inspect "$image" --format '{{.Architecture}}')" = amd64
 test "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$revision"
 printf 'APP_ENV=%s\nAPP_CONTAINER=%s\nAPP_PROFILE=%s\nAPP_IMAGE=%s\nAPP_ENV_FILE=%s/.env\n' \
     "$environment" "$container" "$profile" "$image" "$root" > "$release/deployment.env"
