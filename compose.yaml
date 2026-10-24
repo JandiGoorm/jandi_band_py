@@ -5,6 +5,8 @@ services:
     image: ${APP_IMAGE:?}
     container_name: ${APP_CONTAINER:?}
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: 1.0
     logging:
       driver: json-file
       options:

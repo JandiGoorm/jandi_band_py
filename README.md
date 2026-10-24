@@ -14,7 +14,7 @@ jandi_band_backend를 위한 서브 서버로, 에브리타임 시간표 URL을 
 
 | 구분 | 기술 |
 |:-----|:-----|
-| **Language** | Python 3.12 |
+| **Language** | Python 3.15 |
 | **Framework** | FastAPI, Uvicorn |
 | **Libraries** | httpx, lxml, pydantic |
 | **Infra** | Docker, GitHub Actions |
@@ -40,7 +40,7 @@ jandi_band_py/
 
 ### 사전 요구사항
 
-- Python 3.12
+- Python 3.15
 
 ### 실행 방법
 
@@ -50,17 +50,17 @@ python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # 2. 의존성 설치
-pip install -r requirements.txt
+pip install -r requirements.lock.txt
 
 # 3. 서버 실행
 python app.py
 # 또는
-uvicorn app:app --reload --host 0.0.0.0 --port 5001
+uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
 
 **접속 URL**
-- API 서버: http://localhost:5001
-- 헬스체크: http://localhost:5001/health
+- API 서버: http://localhost:8000
+- 헬스체크: http://localhost:8000/health
 
 ---
 
@@ -68,10 +68,10 @@ uvicorn app:app --reload --host 0.0.0.0 --port 5001
 
 ```bash
 # 헬스체크 테스트
-curl http://localhost:5001/health
+curl http://localhost:8000/health
 
 # 시간표 조회 테스트 (에브리타임 공유 URL 필요)
-curl "http://localhost:5001/timetable?url=https://everytime.kr/timetable/share/xxxxxx"
+curl "http://localhost:8000/timetable?url=https://everytime.kr/timetable/share/xxxxxx"
 ```
 
 ---
@@ -116,7 +116,7 @@ Compose와 공개 설정은 이 저장소에서 관리하고, 실제 `.env`는 �
 
 **Example**
 ```bash
-curl "http://localhost:5001/timetable?url=https://everytime.kr/timetable/share/xxxxxx"
+curl "http://localhost:8000/timetable?url=https://everytime.kr/timetable/share/xxxxxx"
 ```
 
 ---
