@@ -4,8 +4,14 @@ updates:
     target-branch: main
     directory: "/"
     schedule:
-      interval: daily
+      interval: quarterly
     groups:
+      web-api:
+        patterns: ["fastapi", "starlette", "anyio", "uvicorn", "h11", "pydantic*", "annotated-*", "typing-*", "typing_*"]
+        update-types: ["minor", "major"]
+      http-clients:
+        patterns: ["httpx", "httpcore", "certifi", "idna"]
+        update-types: ["minor", "major"]
       package-patches:
         patterns: ["*"]
         update-types: ["patch"]
@@ -13,14 +19,26 @@ updates:
     target-branch: main
     directory: "/"
     schedule:
-      interval: daily
+      interval: quarterly
+    groups:
+      runtime-images:
+        patterns: ["*"]
+        update-types: ["minor", "major"]
   - package-ecosystem: "docker-compose"
     target-branch: main
     directory: "/gateway"
     schedule:
-      interval: daily
+      interval: quarterly
+    groups:
+      gateway-images:
+        patterns: ["nginx"]
+        update-types: ["minor", "major"]
   - package-ecosystem: "github-actions"
     target-branch: main
     directory: "/"
     schedule:
-      interval: daily
+      interval: quarterly
+    groups:
+      ci-actions:
+        patterns: ["*"]
+        update-types: ["minor", "major"]
