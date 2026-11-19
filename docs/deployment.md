@@ -9,6 +9,7 @@ Python 3.15 기반 AMD64 이미지를 GHCR에 발행하고 digest로 배포한�
 GHCR 인증에는 작업별 `GITHUB_TOKEN`을 사용한다.
 GitHub production 환경의 `OCI_HOST`, `OCI_USER`, `OCI_KNOWN_HOSTS` 변수와 `OCI_SSH_KEY` 시크릿을 사용한다.
 Tailscale OIDC는 `TS_CLIENT_ID`, `TS_AUDIENCE` 변수로 연결한다.
+Nginx 배포에는 `production` 환경 변수 `TS_NGINX_CLIENT_ID`, `TS_NGINX_AUDIENCE`를 사용한다. 이 OIDC 자격 증명은 이 저장소의 `main`에 있는 `nginx-rollout.yml`만 허용한다.
 
 Docker 테스트 후 호스트에서 `/health`와 허용되지 않은 시간표 URL의 400 응답을 확인한다.
 배포 실패 시 이전 release로 복구한다. DB와 이미지 저장소에는 직접 접속하지 않는다.
