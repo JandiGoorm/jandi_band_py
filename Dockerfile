@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # 1. Builder Stage: 의존성 설치
-FROM python:3.15-slim-trixie AS builder
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS builder
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -28,15 +28,15 @@ RUN python -m unittest discover -s tests -v
 
 # -----------------------------------------------------
 
-FROM python:3.15-slim-trixie AS audit
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS audit
 WORKDIR /app
 COPY requirements.lock.txt .
 RUN pip install --no-cache-dir pip-audit && pip-audit -r requirements.lock.txt
 
 # 2. Final Stage: 실제 실행될 이미지
-FROM python:3.15-slim-trixie AS runtime
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS runtime
 
-RUN apt-get update && apt-get install -y curl --no-install-recommends && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y && apt-get install -y curl --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -50,6 +50,10 @@ WORKDIR /app
 
 # Builder 스테이지에서 가상 환경과 설치된 패키지만 복사
 COPY --from=builder /opt/venv /opt/venv
+# The production service only executes its installed dependencies.
+RUN /opt/venv/bin/python -m pip uninstall -y pip && \
+    /usr/local/bin/python -m pip uninstall -y pip && \
+    rm -f /usr/local/lib/python*/ensurepip/_bundled/pip-*.whl
 # Builder 스테이지에서 애플리케이션 코드 복사
 COPY --chown=scraper:scraper app.py .
 COPY --chown=scraper:scraper service service
